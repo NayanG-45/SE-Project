@@ -1,0 +1,28 @@
+{
+  "name": "narcotest-vision",
+  "version": "1.0.0",
+  "description": "NarcoTest Vision (NTV) — Secure drug test locking with time & location, providing tamper-proof evidence",
+  "main": "server/server.js",
+  "scripts": {
+    "start": "node server/server.js"
+  },
+  "keywords": [
+    "forensics",
+    "colorimetry",
+    "computer-vision",
+    "cielab",
+    "sha256",
+    "tamper-proof",
+    "evidence-locking"
+  ],
+  "author": "NTV SE Team",
+  "license": "MIT",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.2"
+  },
+  "optionalDependencies": {
+    "better-sqlite3": "^11.8.1",
+    "sqlite3": "^5.1.7"
+  }
+}

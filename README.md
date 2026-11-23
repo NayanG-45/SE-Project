@@ -1,3 +1,24 @@
+## ⚠️ AI Agent Sync Protocol (READ FIRST)
+This `README.md` is a **living specification**. Before making changes, distinguish between:
+
+1. **IMMUTABLE CORE (Do NOT break without explicit user approval):**
+   - Live camera only (zero file/gallery uploads).
+   - Automated 2-frame timed capture ($t=0\text{s}$ and $t=\Delta t$).
+   - Deterministic CIELAB ($\Delta E$) math + Quality Gate (no AI/ML classifiers).
+   - Lock-Before-Display protocol + Server-side SHA-256 canonical hashing.
+   - Append-only SQLite API (`POST /api/lock`, `GET /api/evidence`, `GET /api/evidence/:id/verify` — no `PUT`/`PATCH`/`DELETE`).
+
+2. **FLEXIBLE LAYER (Free to evolve):**
+   - UI/UX layout, CSS styling, color themes, responsive components, animations, and display formatting.
+   - Minor UX helpers (e.g., better countdown visuals, clearer ROI reticle, report print/export styling).
+
+**MANDATORY RULE FOR ALL AI AGENTS:**
+- Always inspect the **actual current codebase** before assuming `README.md` is up to date on UI/design details.
+- Whenever you modify UI, routes, constants, or file structure, **immediately update the corresponding section of `README.md` (and log it in the Changelog below)** so the next AI agent stays 100% synced.
+
+### Change Log (Auto-Updated by AI)
+- `2026-11-24`: Initial architecture & spec locked.
+
 # NarcoTest Vision (NTV) — Complete Technical Specification & Architecture Blueprint
 
 > **Official Project Description:** "The NTV system securely locks the drug test results with time & location and provides tamper-proof evidence of results."

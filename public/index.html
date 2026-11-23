@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>NarcoTest Vision (NTV) — Forensic Evidence System</title>
+  <link rel="stylesheet" href="style.css">
+  <!--
+    HARD PROHIBITION COMPLIANCE (README.md Section 3):
+    - NO Authentication or User Management elements.
+    - NO File Uploads (<input type="file"> is strictly forbidden). Live camera stream only.
+    - NO Generative AI / LLM / CNN interfaces. Deterministic math only.
+    - NO Blockchain / Web3 components.
+    - NO Edit / Mutating actions (Append-only forensic record).
+  -->
+</head>
+<body>
+  <header class="app-header">
+    <div class="header-container">
+      <div class="brand">
+        <span class="brand-shield">&#128737;</span>
+        <div class="brand-text">
+          <h1 class="app-title">NarcoTest Vision <span class="badge-acronym">NTV</span></h1>
+          <p class="app-subtitle">Objective Colorimetric Evidence Locking & Verification</p>
+        </div>
+      </div>
+      <nav class="nav-bar">
+        <button id="nav-btn-test" class="nav-btn active" type="button">
+          <span class="nav-icon">&#9679;</span> New Field Test
+        </button>
+        <button id="nav-btn-vault" class="nav-btn" type="button">
+          <span class="nav-icon">&#128274;</span> Evidence Vault
+        </button>
+      </nav>
+    </div>
+  </header>
+
+  <main class="app-main">
+    <!-- =========================================================================
+         VIEW 1: Pre-Flight Hardware Permission Gate (Fail-Fast Pre-condition)
+         ========================================================================= -->
+    <section id="view-permissions" class="view-panel active">
+      <div class="card permission-card">
+        <h2 class="card-title">Pre-Flight Hardware Authorization</h2>
+        <p class="card-description">
+          Forensic integrity mandates direct hardware sensor telemetry. Both camera stream access and real-time GPS coordinates are hard pre-requisites before test initialization.
+        </p>
+
+        <div class="status-grid">
+          <div class="status-item">
+            <span class="status-label">Camera Sensor</span>
+            <span id="badge-camera-status" class="badge badge-pending">PENDING</span>
+          </div>
+          <div class="status-item">
+            <span class="status-label">GPS Geolocation</span>
+            <span id="badge-gps-status" class="badge badge-pending">PENDING</span>
+          </div>
+          <div class="status-item coordinates-item">
+            <span class="status-label">Telemetry Fix</span>
+            <span id="label-gps-coords" class="coord-display">Awaiting GPS fix...</span>
+          </div>
+        </div>
+
+        <div class="permission-actions">
+          <!-- TODO: Implement requestPermissions() in app.js -->
+          <button id="btn-request-perms" class="btn btn-primary" type="button">
+            Request Hardware Permissions
+          </button>
+          <!-- TODO: Enable only when both Camera & GPS status are GRANTED -->
+          <button id="btn-start-test" class="btn btn-success" type="button" disabled>
+            Perform Field Test &rarr;
+          </button>
+        </div>
+
+        <div id="permission-error-alert" class="alert alert-danger hidden" role="alert">
+          <!-- Dynamic hardware permission error message -->
+        </div>
+      </div>
+    </section>
+
+    <!-- =========================================================================
+         VIEW 2: Automated 2-Frame Timed Capture (Zero Manual Triggering)
+         ========================================================================= -->
+    <section id="view-capture" class="view-panel hidden">
+      <div class="card capture-card">
+        <div class="capture-header">
+          <h2 class="card-title">Live Reaction Sampling</h2>
+          <span id="timer-display" class="countdown-badge">Ready</span>
+        </div>
+        <p class="card-description">
+          Align the reagent reaction vial within the center reticle. Capture is 100% automated: Baseline (t=0s) and Reacted (t=&Delta;t) frames are sampled without operator intervention to prevent timing bias.
+        </p>
+
+        <div class="viewport-wrapper">
+          <video id="camera-feed" playsinline autoplay muted></video>
+          <!-- Center 100x100 Region of Interest (ROI) Reticle Overlay -->
+          <div class="roi-reticle" aria-label="Region of Interest sampling target">
+            <div class="reticle-corner corner-tl"></div>
+            <div class="reticle-corner corner-tr"></div>
+            <div class="reticle-corner corner-bl"></div>
+            <div class="reticle-corner corner-br"></div>
+            <div class="reticle-center-cross"></div>
+          </div>
+          <div id="capture-status-overlay" class="capture-status-overlay hidden">
+            <span id="capture-status-text">Capturing Baseline (t=0s)...</span>
+          </div>
+        </div>
+
+        <!-- Hidden canvas for deterministic frame extraction and pixel manipulation -->
+        <canvas id="capture-canvas" class="hidden-canvas" width="480" height="360"></canvas>
+
+        <div class="capture-indicators">
+          <div id="step-baseline" class="step-indicator">
+            <span class="step-dot"></span> 1. Baseline Frame (t=0s)
+          </div>
+          <div id="step-reaction" class="step-indicator">
+            <span class="step-dot"></span> 2. Chemical Reaction Window
+          </div>
+          <div id="step-reacted" class="step-indicator">
+            <span class="step-dot"></span> 3. Reacted Frame (t=&Delta;t)
+          </div>
+        </div>
+
+        <div id="quality-gate-error" class="alert alert-danger hidden" role="alert">
+          <!-- TODO: Render Quality Gate failure reason (Blank / Dark / Overexposed / Lens Covered) -->
+        </div>
+      </div>
+    </section>
+
+    <!-- =========================================================================
+         VIEW 3: Mathematical Analysis & Lock-Before-Display Result
+         ========================================================================= -->
+    <section id="view-analysis" class="view-panel hidden">
+      <!-- Locking State Banner (Displayed before result rendering) -->
+      <div id="locking-spinner" class="card card-center">
+        <div class="spinner"></div>
+        <h3 class="locking-title">Cryptographically Locking Evidence...</h3>
+        <p class="locking-desc">
+          Committing raw frames, &Delta;E color shift, GPS telemetry, and server-side UTC timestamp to SQLite vault before displaying results.
+        </p>
+      </div>
+
+      <!-- Locked Read-Only Report View (Rendered strictly AFTER HTTP 201 Created) -->
+      <div id="locked-report-container" class="card report-card hidden">
+        <div class="report-header">
+          <div>
+            <span class="seal-badge">&#128274; LOCKED &mdash; READ-ONLY</span>
+            <h2 id="report-case-id" class="case-id-display">NTV-XXXXXXXX-XXXXXX</h2>
+          </div>
+          <div class="report-timestamp-block">
+            <span class="meta-label">Authoritative Server UTC</span>
+            <span id="report-timestamp" class="meta-value">&mdash;</span>
+          </div>
+        </div>
+
+        <!-- Side-by-side Evidence Frame Inspection -->
+        <div class="evidence-frames-grid">
+          <div class="frame-container">
+            <span class="frame-caption">Frame 1: Baseline (t=0s)</span>
+            <img id="img-baseline" class="evidence-thumbnail" alt="Baseline Evidence Frame">
+          </div>
+          <div class="frame-container">
+            <span class="frame-caption">Frame 2: Reacted (t=&Delta;t)</span>
+            <img id="img-reacted" class="evidence-thumbnail" alt="Reacted Evidence Frame">
+          </div>
+        </div>
+
+        <!-- Mathematical Telemetry and Presumptive Classification -->
+        <div class="forensic-data-grid">
+          <div class="data-cell">
+            <span class="data-label">Perceptual Shift (&Delta;E&#8327;&#8326;)</span>
+            <span id="report-delta-e" class="data-value highlight">&mdash;</span>
+          </div>
+          <div class="data-cell">
+            <span class="data-label">GPS Coordinate Lock</span>
+            <span id="report-gps" class="data-value">&mdash;</span>
+          </div>
+          <div class="data-cell full-width">
+            <span class="data-label">Presumptive Forensic Classification</span>
+            <span id="report-matched-result" class="data-value result-badge">&mdash;</span>
+          </div>
+        </div>
+
+        <!-- Cryptographic Seal -->
+        <div class="crypto-seal-box">
+          <span class="crypto-label">&#128271; SHA-256 Canonical Evidence Seal:</span>
+          <code id="report-sha256" class="hash-code">&mdash;</code>
+        </div>
+
+        <div class="report-actions">
+          <button id="btn-next-test" class="btn btn-secondary" type="button">
+            New Field Test
+          </button>
+          <button id="btn-view-in-vault" class="btn btn-primary" type="button">
+            View in Evidence Vault
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- =========================================================================
+         VIEW 4: Read-Only Evidence Vault & Live Tamper Verifier
+         ========================================================================= -->
+    <section id="view-vault" class="view-panel hidden">
+      <div class="card vault-card">
+        <div class="vault-header">
+          <div>
+            <h2 class="card-title">Immutable Evidence Vault</h2>
+            <p class="card-description">
+              Forensic audit trail of all locked colorimetric field records. Verifies cryptographic hashes in real-time to detect database tampering.
+            </p>
+          </div>
+          <button id="btn-refresh-vault" class="btn btn-secondary" type="button">
+            &#8635; Refresh Vault
+          </button>
+        </div>
+
+        <!-- Live Tamper Verification Modal / Banner -->
+        <div id="tamper-verification-banner" class="verification-banner hidden" role="region" aria-live="polite">
+          <!-- TODO: Dynamically display VERIFIED (Green) or TAMPERED (Red Alert) -->
+        </div>
+
+        <!-- Vault Records Table -->
+        <div class="table-responsive">
+          <table class="vault-table">
+            <thead>
+              <tr>
+                <th>Case ID</th>
+                <th>Server Timestamp (UTC)</th>
+                <th>Presumptive Result</th>
+                <th>&Delta;E Shift</th>
+                <th>GPS Location</th>
+                <th>Cryptographic Action</th>
+              </tr>
+            </thead>
+            <tbody id="vault-records-body">
+              <!-- TODO: Populate rows dynamically from GET /api/evidence -->
+              <tr>
+                <td colspan="6" class="text-center text-muted">Loading evidence vault records...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="app-footer">
+    <p>NarcoTest Vision (NTV) &bull; SE Academic Capstone &bull; IEEE-830 Compliant Cryptographic Evidence Architecture</p>
+  </footer>
+
+  <!-- Modular Scripts (Vanilla ES6, Zero Build Toolchain) -->
+  <script type="module" src="colorMath.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
