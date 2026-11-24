@@ -2,12 +2,13 @@
  * NarcoTest Vision (NTV) — Client Application State Machine & Hardware Controller
  *
  * SPECIFICATION REFERENCE: README.md Sections 3, 4, 6, and 7
+ * Design System: Forensic Precision Laboratory Console (DESIGN.md)
  *
  * Architecture Compliance:
  * - View 1: Pre-Flight Hardware Permission Gate (Camera + Geolocation)
  * - View 2: Automated 2-Frame Timed Capture (500ms warm-up, t=0s, 5000ms countdown, t=deltaT, no manual tap)
  * - View 3: Mathematical Quality Gate + Local Math + Lock-Before-Display (POST /api/lock before result display)
- * - View 4: Immutable Evidence Vault + Live Tamper Verifier (GET /api/evidence & /:id/verify)
+ * - View 4: Immutable Evidence Vault + Live Tamper Verifier (Stacked Mobile Cards, zero horizontal scroll on 390px)
  *
  * HARD PROHIBITIONS (README.md Section 3):
  * - ZERO file inputs or gallery pickers (<input type="file"> is strictly banned).
@@ -156,7 +157,7 @@ async function requestHardwarePermissions() {
         }
       });
     } catch {
-      // Fallback to any available video stream (e.g. laptop front camera)
+      // Fallback to any available video sensor (e.g. laptop front camera)
       testStream = await navigator.mediaDevices.getUserMedia({ video: true });
     }
 
@@ -205,7 +206,7 @@ async function requestHardwarePermissions() {
     errors.push('GPS: ' + (err.message || 'Position unavailable or denied'));
   }
 
-  // Hard Gate: Perform Test button strictly enabled ONLY when both are active
+  // Hard Gate: Perform Field Test button strictly enabled ONLY when both are active
   if (cameraOk && gpsOk) {
     elements.btnStartTest.disabled = false;
     elements.btnStartTest.focus();
@@ -270,7 +271,7 @@ async function startCaptureSequence() {
 
     // 3. Chemical Reaction Countdown (Uninterruptible REACTION_DELAY_MS = 5000)
     elements.stepReaction.classList.add('active');
-    setCaptureStatus('Reaction Window Active — Align vial in reticle...', true);
+    setCaptureStatus('Incubation Active — Align vial in reticle...', true);
     await runCountdown(REACTION_DELAY_MS);
     elements.stepReaction.classList.remove('active');
     elements.stepReaction.classList.add('complete');
@@ -449,10 +450,10 @@ function renderLockedReport(record) {
 }
 
 /* =============================================================================
-   View 4: Read-Only Evidence Vault & Live Tamper Verifier
+   View 4: Read-Only Evidence Vault & Live Tamper Verifier (Stacked Mobile Cards)
    ============================================================================= */
 async function loadVaultRecords() {
-  elements.vaultRecordsBody.innerHTML = '<tr><td colspan="6" class="text-center text-muted" style="padding: 1.5rem;">Fetching locked evidence records...</td></tr>';
+  elements.vaultRecordsBody.innerHTML = '<div class="vault-empty-state">Fetching locked evidence records...</div>';
   elements.tamperVerificationBanner.classList.add('hidden');
   elements.vaultCaseDetail.classList.add('hidden');
 
@@ -462,26 +463,58 @@ async function loadVaultRecords() {
     const records = await res.json();
 
     if (!records || records.length === 0) {
-      elements.vaultRecordsBody.innerHTML = '<tr><td colspan="6" class="text-center text-muted" style="padding: 1.5rem;">No evidence records committed to the vault yet.</td></tr>';
+      elements.vaultRecordsBody.innerHTML = '<div class="vault-empty-state">No evidence records committed to the vault yet.</div>';
       return;
     }
 
     elements.vaultRecordsBody.innerHTML = '';
     records.forEach(rec => {
-      const tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td><strong style="font-family: var(--font-mono); color: #fff;">${escapeHtml(rec.case_id)}</strong></td>
-        <td style="font-family: var(--font-mono); font-size: 0.75rem;">${new Date(rec.server_timestamp).toUTCString()}</td>
-        <td><span class="badge badge-pending" style="font-size: 0.7rem;">${escapeHtml(rec.matched_result)}</span></td>
-        <td style="font-family: var(--font-mono); color: var(--accent-cyan); font-weight: 600;">${Number(rec.delta_e).toFixed(4)}</td>
-        <td style="font-family: var(--font-mono); font-size: 0.75rem;">${Number(rec.gps_lat).toFixed(6)}, ${Number(rec.gps_lng).toFixed(6)}</td>
-        <td>
-          <button class="btn btn-secondary btn-sm btn-verify" data-case-id="${escapeHtml(rec.case_id)}">
-            Verify Integrity &rarr;
-          </button>
-        </td>
+      const card = document.createElement('div');
+      card.className = 'evidence-vault-card';
+
+      let badgeClass = 'badge-pending';
+      if (rec.matched_result && rec.matched_result.includes('POSITIVE')) {
+        badgeClass = 'badge-success';
+      } else if (rec.matched_result && rec.matched_result.includes('NEGATIVE')) {
+        badgeClass = 'badge-pending';
+      } else if (rec.matched_result && rec.matched_result.includes('INCONCLUSIVE')) {
+        badgeClass = 'badge-danger';
+      }
+
+      card.innerHTML = `
+        <div class="vault-card-header">
+          <div class="case-id-group">
+            <span class="card-field-label">Case Identifier</span>
+            <span class="case-id-mono">${escapeHtml(rec.case_id)}</span>
+          </div>
+          <span class="badge ${badgeClass}">
+            ${escapeHtml(rec.matched_result)}
+          </span>
+        </div>
+
+        <div class="vault-card-telemetry">
+          <div class="telemetry-cell">
+            <span class="card-field-label">Timestamp (UTC)</span>
+            <span class="telemetry-value">${new Date(rec.server_timestamp).toUTCString()}</span>
+          </div>
+          <div class="telemetry-cell">
+            <span class="card-field-label">Perceptual Shift (&Delta;E)</span>
+            <span class="telemetry-value highlight">${Number(rec.delta_e).toFixed(4)}</span>
+          </div>
+          <div class="telemetry-cell full-width">
+            <span class="card-field-label">GPS Coordinate Fix</span>
+            <span class="telemetry-value">${Number(rec.gps_lat).toFixed(6)}, ${Number(rec.gps_lng).toFixed(6)}</span>
+          </div>
+        </div>
+
+        <button class="btn btn-secondary btn-sm btn-verify btn-full" data-case-id="${escapeHtml(rec.case_id)}" type="button">
+          <svg class="btn-svg" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M2.166 4.999A11.954 11.954 0 0010 1.944 11.954 11.954 0 0017.834 5c.11.65.166 1.32.166 2.001 0 5.225-3.34 9.67-8 11.317C5.34 16.67 2 12.225 2 7c0-.682.057-1.35.166-2.001zm11.541 3.708a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+          </svg>
+          <span>Verify Integrity &rarr;</span>
+        </button>
       `;
-      elements.vaultRecordsBody.appendChild(tr);
+      elements.vaultRecordsBody.appendChild(card);
     });
 
     // Attach click listeners for integrity verification
@@ -493,7 +526,7 @@ async function loadVaultRecords() {
     });
 
   } catch (err) {
-    elements.vaultRecordsBody.innerHTML = `<tr><td colspan="6" class="text-center text-danger" style="padding: 1.5rem;">Failed to load vault records: ${err.message}</td></tr>`;
+    elements.vaultRecordsBody.innerHTML = `<div class="alert alert-danger">Failed to load vault records: ${err.message}</div>`;
   }
 }
 
@@ -509,28 +542,30 @@ async function verifyRecordIntegrity(caseId) {
     if (result.status === 'VERIFIED') {
       elements.tamperVerificationBanner.classList.add('verified');
       elements.tamperVerificationBanner.innerHTML = `
-        <strong>&#10004; INTEGRITY VERIFIED (GREEN) &bull; Case: <code>${escapeHtml(caseId)}</code></strong><br>
-        <span style="font-size: 0.8rem;">Authoritative server recomputation matches stored SHA-256 seal byte-for-byte:</span>
-        <div class="hash-comparison-grid">
-          <div class="hash-box">
-            <span class="hash-box-label">Verified SHA-256 Hash Digest:</span>
-            <code style="color: var(--color-success);">${escapeHtml(result.stored_hash)}</code>
-          </div>
+        <strong>&#10004; INTEGRITY VERIFIED &bull; CASE: <code>${escapeHtml(caseId)}</code></strong>
+        <span style="font-size: 0.75rem; color: #047857; display: block; margin-top: 0.25rem; margin-bottom: 0.5rem;">
+          Server recomputed SHA-256 matches stored evidentiary seal byte-for-byte:
+        </span>
+        <div class="hash-box">
+          <span class="hash-box-label">Verified SHA-256 Digest</span>
+          <code style="color: var(--status-granted); font-weight: 700;">${escapeHtml(result.stored_hash)}</code>
         </div>
       `;
     } else {
       elements.tamperVerificationBanner.classList.add('tampered');
       elements.tamperVerificationBanner.innerHTML = `
-        <strong>&#9888; TAMPERING DETECTED (RED ALERT) &bull; Case: <code>${escapeHtml(caseId)}</code></strong><br>
-        <span style="font-size: 0.8rem;">Cryptographic signature divergence detected! Database row has been altered:</span>
+        <strong>&#9888; TAMPERING DETECTED (ALERT) &bull; CASE: <code>${escapeHtml(caseId)}</code></strong>
+        <span style="font-size: 0.75rem; color: #B91C1C; display: block; margin-top: 0.25rem; margin-bottom: 0.5rem;">
+          Cryptographic signature divergence! SQLite storage row has been altered:
+        </span>
         <div class="hash-comparison-grid">
           <div class="hash-box">
-            <span class="hash-box-label">Stored Hash in Vault:</span>
-            <code style="color: var(--color-warning);">${escapeHtml(result.stored_hash)}</code>
+            <span class="hash-box-label">Stored Hash in Vault</span>
+            <code style="color: var(--status-pending); font-weight: 700;">${escapeHtml(result.stored_hash)}</code>
           </div>
           <div class="hash-box">
-            <span class="hash-box-label">Recomputed Canonical Hash:</span>
-            <code style="color: var(--color-danger);">${escapeHtml(result.computed_hash)}</code>
+            <span class="hash-box-label">Recomputed Canonical Hash</span>
+            <code style="color: var(--status-denied); font-weight: 700;">${escapeHtml(result.computed_hash)}</code>
           </div>
         </div>
       `;
@@ -601,6 +636,5 @@ elements.btnCloseVaultDetail.addEventListener('click', () => {
 
 // Page Initialization
 window.addEventListener('DOMContentLoaded', () => {
-  // Ensure "Perform Test" is strictly disabled on load
   elements.btnStartTest.disabled = true;
 });

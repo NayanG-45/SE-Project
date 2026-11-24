@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>NarcoTest Vision (NTV) — Forensic Evidence System</title>
+  <title>NarcoTest Vision (NTV) — Drug Test Verification</title>
   <link rel="stylesheet" href="style.css">
   <!--
     STRICT PROHIBITION COMPLIANCE (README.md Section 3):
@@ -15,21 +15,35 @@
   -->
 </head>
 <body>
+  <!-- Top Navigation Header -->
   <header class="app-header">
     <div class="header-container">
       <div class="brand">
-        <span class="brand-shield" aria-hidden="true">&#128737;</span>
+        <div class="brand-icon-wrapper">
+          <svg class="brand-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            <path d="m9 12 2 2 4-4"/>
+          </svg>
+        </div>
         <div class="brand-text">
-          <h1 class="app-title">NarcoTest Vision <span class="badge-acronym">NTV</span></h1>
-          <p class="app-subtitle">Objective Colorimetric Evidence Locking &amp; Verification</p>
+          <span class="app-title">NarcoTest Vision</span>
+          <span class="app-subtitle">Objective Drug Test Verification</span>
         </div>
       </div>
+
+      <!-- Segmented Pill Navigation Tab Switcher -->
       <nav class="nav-bar" aria-label="Main Navigation">
         <button id="nav-btn-test" class="nav-btn active" type="button">
-          <span class="nav-icon" aria-hidden="true">&#9679;</span> New Field Test
+          <svg class="nav-svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v2H7a1 1 0 100 2h2v2a1 1 0 102 0v-2h2a1 1 0 100-2h-2V7z" clip-rule="evenodd" />
+          </svg>
+          <span>New Field Test</span>
         </button>
         <button id="nav-btn-vault" class="nav-btn" type="button">
-          <span class="nav-icon" aria-hidden="true">&#128274;</span> Evidence Vault
+          <svg class="nav-svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+            <path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd" />
+          </svg>
+          <span>Evidence Vault</span>
         </button>
       </nav>
     </div>
@@ -37,272 +51,353 @@
 
   <main class="app-main">
     <!-- =========================================================================
-         VIEW 1: Pre-Flight Hardware Permission Gate (Fail-Fast Pre-condition)
+         VIEW 1: Hardware Check (Fail-Fast Pre-Flight Gate)
          ========================================================================= -->
     <section id="view-permissions" class="view-panel active">
-      <div class="card permission-card">
-        <div class="card-header-badge">
-          <span class="phase-badge">Phase 1 &bull; Pre-Flight</span>
-        </div>
-        <h2 class="card-title">Hardware Telemetry Authorization</h2>
-        <p class="card-description">
-          Forensic integrity mandates direct hardware sensor telemetry. Live camera stream and GPS geolocation are mandatory pre-conditions before test initiation.
-        </p>
-
-        <div class="status-grid">
-          <div class="status-item">
-            <div class="status-meta">
-              <span class="status-label">Optical Camera Stream</span>
-              <span class="status-sub">Required for live 2-frame sampling</span>
-            </div>
-            <span id="badge-camera-status" class="badge badge-pending">PENDING</span>
-          </div>
-
-          <div class="status-item">
-            <div class="status-meta">
-              <span class="status-label">GPS Geolocation</span>
-              <span class="status-sub">Required for immutable evidence lock</span>
-            </div>
-            <span id="badge-gps-status" class="badge badge-pending">PENDING</span>
-          </div>
-
-          <div class="status-item coordinates-item">
-            <div class="status-meta">
-              <span class="status-label">Telemetry Fix</span>
-              <span id="label-gps-coords" class="coord-display">Awaiting hardware fix...</span>
-            </div>
-          </div>
+      <div class="view-container max-w-720">
+        <div class="section-intro">
+          <span class="badge-tag">Pre-Flight Verification</span>
+          <h2 class="section-heading">Hardware Check</h2>
+          <p class="section-subheading">
+            Live camera feed and GPS telemetry are required to generate an objective, tamper-proof record. Verify hardware access before starting a test.
+          </p>
         </div>
 
-        <div class="permission-actions">
-          <button id="btn-request-perms" class="btn btn-primary" type="button">
-            Authorize Hardware Sensors
-          </button>
-          <button id="btn-start-test" class="btn btn-success" type="button" disabled>
-            Perform Field Test &rarr;
-          </button>
-        </div>
+        <div class="card p-6 mb-6">
+          <div class="sensors-grid">
+            <!-- Camera Status Card -->
+            <div class="sensor-card">
+              <div class="sensor-header">
+                <div class="sensor-icon-box">
+                  <svg class="sensor-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                    <circle cx="12" cy="13" r="4"/>
+                  </svg>
+                </div>
+                <div class="sensor-meta">
+                  <span class="sensor-name">Camera Stream</span>
+                  <span class="sensor-desc">Automated 2-frame optical sampling</span>
+                </div>
+              </div>
+              <div class="sensor-badge-container">
+                <span id="badge-camera-status" class="badge badge-pending">PENDING</span>
+              </div>
+            </div>
 
-        <div id="permission-error-alert" class="alert alert-danger hidden" role="alert">
-          <!-- Dynamic hardware permission error message -->
+            <!-- GPS Status Card -->
+            <div class="sensor-card">
+              <div class="sensor-header">
+                <div class="sensor-icon-box">
+                  <svg class="sensor-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polygon points="3 11 22 2 13 21 11 13 3 11"/>
+                  </svg>
+                </div>
+                <div class="sensor-meta">
+                  <span class="sensor-name">GPS Geolocation</span>
+                  <span class="sensor-desc">Cryptographic coordinate lock</span>
+                </div>
+              </div>
+              <div class="sensor-badge-container">
+                <span id="badge-gps-status" class="badge badge-pending">PENDING</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- GPS Coordinates Readout -->
+          <div class="telemetry-fix-box">
+            <span class="telemetry-fix-label">GPS Coordinate Fix</span>
+            <span id="label-gps-coords" class="telemetry-fix-coords">Awaiting hardware fix...</span>
+          </div>
+
+          <!-- Stacked / Responsive Action Buttons -->
+          <div class="permission-actions">
+            <button id="btn-request-perms" class="btn btn-secondary btn-lg" type="button">
+              <svg class="btn-icon" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd" />
+              </svg>
+              <span>Authorize Hardware Sensors</span>
+            </button>
+            <button id="btn-start-test" class="btn btn-primary btn-lg" type="button" disabled>
+              <span>Perform Field Test</span>
+              <svg class="btn-icon" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M12.293 5.293a1 1 0 011.414 0l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-2.293-2.293a1 1 0 010-1.414z" clip-rule="evenodd" />
+              </svg>
+            </button>
+          </div>
+
+          <div id="permission-error-alert" class="alert alert-danger hidden" role="alert">
+            <!-- Dynamic hardware permission error message -->
+          </div>
         </div>
       </div>
     </section>
 
     <!-- =========================================================================
-         VIEW 2: Automated 2-Frame Timed Capture (Zero Manual Triggering)
+         VIEW 2: Live Capture (Automated 2-Frame Timed Capture)
          ========================================================================= -->
     <section id="view-capture" class="view-panel hidden">
-      <div class="card capture-card">
-        <div class="capture-header">
-          <div>
-            <span class="phase-badge">Phase 2 &bull; Reaction Sampling</span>
-            <h2 class="card-title">Automated Chemical Capture</h2>
-          </div>
-          <div class="timer-box">
-            <span class="timer-label">Reaction Window</span>
-            <span id="timer-display" class="countdown-badge">5.00s</span>
-          </div>
+      <div class="view-container max-w-960">
+        <div class="section-intro">
+          <span class="badge-tag">Reaction Sampling</span>
+          <h2 class="section-heading">Live Chemical Capture</h2>
+          <p class="section-subheading">
+            Align the reagent reaction vial within the center square. Frame 1 and Frame 2 will capture automatically to avoid human timing bias.
+          </p>
         </div>
 
-        <p class="card-description">
-          Center the reaction vial inside the 100&times;100px reticle. Frame 1 (t=0s) and Frame 2 (t=&Delta;t) are captured automatically to prevent timing bias.
-        </p>
+        <div class="capture-layout-grid">
+          <!-- Left Column: Camera Viewfinder -->
+          <div class="card p-4 flex flex-col items-center">
+            <div class="viewport-wrapper">
+              <video id="camera-feed" playsinline autoplay muted></video>
 
-        <div class="viewport-wrapper">
-          <video id="camera-feed" playsinline autoplay muted></video>
+              <!-- Centered 100x100 Region of Interest (ROI) Reticle Overlay -->
+              <div class="roi-reticle" aria-label="Region of Interest sampling target">
+                <div class="reticle-corner corner-tl"></div>
+                <div class="reticle-corner corner-tr"></div>
+                <div class="reticle-corner corner-bl"></div>
+                <div class="reticle-corner corner-br"></div>
+                <div class="reticle-center-cross"></div>
+                <span class="reticle-label">100&times;100 ROI</span>
+              </div>
 
-          <!-- Centered 100x100 Region of Interest (ROI) Reticle Overlay -->
-          <div class="roi-reticle" aria-label="Region of Interest sampling target">
-            <div class="reticle-corner corner-tl"></div>
-            <div class="reticle-corner corner-tr"></div>
-            <div class="reticle-corner corner-bl"></div>
-            <div class="reticle-corner corner-br"></div>
-            <div class="reticle-center-cross"></div>
-            <span class="reticle-label">ROI 100&times;100</span>
+              <div id="capture-status-overlay" class="capture-status-overlay hidden">
+                <span id="capture-status-text">Warming sensor (500ms)...</span>
+              </div>
+            </div>
+
+            <!-- Hidden canvas for frame extraction -->
+            <canvas id="capture-canvas" class="hidden-canvas" width="480" height="360"></canvas>
           </div>
 
-          <div id="capture-status-overlay" class="capture-status-overlay hidden">
-            <span id="capture-status-text">Warming up optical sensor...</span>
-          </div>
-        </div>
+          <!-- Right Column: Timer & Sequence Indicators -->
+          <div class="card p-6 flex flex-col justify-between">
+            <div>
+              <div class="timer-card mb-6">
+                <span class="timer-label">Reaction Incubation Window</span>
+                <span id="timer-display" class="countdown-badge">5.00s</span>
+                <span class="timer-sub">Uninterruptible automated countdown</span>
+              </div>
 
-        <!-- Hidden canvas for deterministic frame extraction and pixel manipulation -->
-        <canvas id="capture-canvas" class="hidden-canvas" width="480" height="360"></canvas>
+              <div class="capture-indicators mb-6">
+                <div id="step-baseline" class="step-indicator">
+                  <span class="step-dot"></span>
+                  <div class="step-details">
+                    <span class="step-title">1. Baseline Frame (t = 0s)</span>
+                    <span class="step-sub">Pre-reaction reference capture</span>
+                  </div>
+                </div>
+                <div id="step-reaction" class="step-indicator">
+                  <span class="step-dot"></span>
+                  <div class="step-details">
+                    <span class="step-title">2. Chemical Reaction Window</span>
+                    <span class="step-sub">Fixed 5000ms incubation curve</span>
+                  </div>
+                </div>
+                <div id="step-reacted" class="step-indicator">
+                  <span class="step-dot"></span>
+                  <div class="step-details">
+                    <span class="step-title">3. Reacted Frame (t = &Delta;t)</span>
+                    <span class="step-sub">Automated post-reaction capture</span>
+                  </div>
+                </div>
+              </div>
+            </div>
 
-        <div class="capture-indicators">
-          <div id="step-baseline" class="step-indicator">
-            <span class="step-dot"></span> 1. Baseline Frame (t=0s)
+            <div id="quality-gate-error" class="alert alert-danger hidden" role="alert">
+              <div id="quality-gate-error-text"></div>
+              <button id="btn-retry-capture" class="btn btn-secondary btn-sm mt-3 w-full" type="button">
+                <span>&circlearrowright; Recalibrate &amp; Retry Test</span>
+              </button>
+            </div>
           </div>
-          <div id="step-reaction" class="step-indicator">
-            <span class="step-dot"></span> 2. Chemical Reaction Window (5000ms)
-          </div>
-          <div id="step-reacted" class="step-indicator">
-            <span class="step-dot"></span> 3. Reacted Frame (t=&Delta;t)
-          </div>
-        </div>
-
-        <div id="quality-gate-error" class="alert alert-danger hidden" role="alert">
-          <div id="quality-gate-error-text"></div>
-          <button id="btn-retry-capture" class="btn btn-secondary btn-sm" type="button" style="margin-top: 0.5rem;">
-            &circlearrowright; Retry Test
-          </button>
         </div>
       </div>
     </section>
 
     <!-- =========================================================================
-         VIEW 3: Mathematical Analysis & Lock-Before-Display Result
+         VIEW 3: Locked Report (Local Math & Lock-Before-Display)
          ========================================================================= -->
     <section id="view-analysis" class="view-panel hidden">
-      <!-- Locking State Banner (Rendered BEFORE any result display) -->
-      <div id="locking-spinner" class="card card-center">
-        <div class="spinner"></div>
-        <h3 class="locking-title">Cryptographically Locking Evidence...</h3>
-        <p class="locking-desc">
-          Committing raw frames, &Delta;E color shift, GPS telemetry, and server UTC timestamp to SQLite vault before displaying classification.
-        </p>
-      </div>
-
-      <!-- Locked Read-Only Report View (Rendered strictly AFTER HTTP 201 Created) -->
-      <div id="locked-report-container" class="card report-card hidden">
-        <div class="report-header">
-          <div>
-            <span class="seal-badge">&#128274; LOCKED &mdash; READ-ONLY</span>
-            <h2 id="report-case-id" class="case-id-display">NTV-XXXXXXXX-XXXXXX</h2>
-          </div>
-          <div class="report-timestamp-block">
-            <span class="meta-label">Authoritative Server UTC</span>
-            <span id="report-timestamp" class="meta-value">&mdash;</span>
-          </div>
+      <div class="view-container max-w-960">
+        <!-- Locking State Spinner Banner (Displayed BEFORE result display) -->
+        <div id="locking-spinner" class="card card-center p-12">
+          <div class="spinner"></div>
+          <h3 class="locking-title">Cryptographically Locking Evidence...</h3>
+          <p class="locking-desc">
+            Committing raw frames, &Delta;E perceptual shift, GPS coordinates, and server UTC timestamp to the permanent vault before displaying results.
+          </p>
         </div>
 
-        <!-- Side-by-side Evidence Frame Inspection -->
-        <div class="evidence-frames-grid">
-          <div class="frame-container">
-            <span class="frame-caption">Frame 1: Baseline (t=0s)</span>
-            <img id="img-baseline" class="evidence-thumbnail" alt="Baseline Evidence Frame">
+        <!-- Locked Read-Only Report View (Rendered strictly AFTER HTTP 201 Created) -->
+        <div id="locked-report-container" class="card p-6 hidden">
+          <!-- Top Result Banner -->
+          <div class="report-result-banner mb-6">
+            <div class="banner-left">
+              <span class="seal-badge">
+                <svg class="badge-icon-svg" viewBox="0 0 20 20" fill="currentColor">
+                  <path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd" />
+                </svg>
+                <span>LOCKED &mdash; READ-ONLY</span>
+              </span>
+              <h2 id="report-case-id" class="case-id-display">NTV-XXXXXXXX-XXXXXX</h2>
+              <div class="report-classification-box mt-2">
+                <span class="meta-label">Presumptive Classification</span>
+                <span id="report-matched-result" class="result-badge">&mdash;</span>
+              </div>
+            </div>
+            <div class="banner-right">
+              <span class="meta-label">Authoritative Server Timestamp (UTC)</span>
+              <span id="report-timestamp" class="meta-value">&mdash;</span>
+            </div>
           </div>
-          <div class="frame-container">
-            <span class="frame-caption">Frame 2: Reacted (t=&Delta;t)</span>
-            <img id="img-reacted" class="evidence-thumbnail" alt="Reacted Evidence Frame">
-          </div>
-        </div>
 
-        <!-- Mathematical Telemetry and Presumptive Classification -->
-        <div class="forensic-data-grid">
-          <div class="data-cell">
-            <span class="data-label">Perceptual Shift (&Delta;E&#8327;&#8326;)</span>
-            <span id="report-delta-e" class="data-value highlight">&mdash;</span>
-          </div>
-          <div class="data-cell">
-            <span class="data-label">GPS Coordinate Lock</span>
-            <span id="report-gps" class="data-value">&mdash;</span>
-          </div>
-          <div class="data-cell full-width">
-            <span class="data-label">Presumptive Forensic Classification</span>
-            <span id="report-matched-result" class="data-value result-badge">&mdash;</span>
-          </div>
-        </div>
+          <!-- 2-Column Split: Frames on Left, Telemetry & Hash on Right -->
+          <div class="report-grid">
+            <!-- Left: Side-by-side Evidence Images -->
+            <div class="frames-column">
+              <span class="column-heading">Evidentiary Dual Frames</span>
+              <div class="evidence-frames-grid">
+                <div class="frame-card">
+                  <span class="frame-caption">Frame 1: Baseline (t=0s)</span>
+                  <div class="frame-aspect">
+                    <img id="img-baseline" class="evidence-thumbnail" alt="Baseline Evidence Frame">
+                  </div>
+                </div>
+                <div class="frame-card">
+                  <span class="frame-caption">Frame 2: Reacted (t=&Delta;t)</span>
+                  <div class="frame-aspect">
+                    <img id="img-reacted" class="evidence-thumbnail" alt="Reacted Evidence Frame">
+                  </div>
+                </div>
+              </div>
+            </div>
 
-        <!-- Cryptographic Seal -->
-        <div class="crypto-seal-box">
-          <span class="crypto-label">&#128271; Canonical SHA-256 Evidence Seal</span>
-          <code id="report-sha256" class="hash-code">&mdash;</code>
-        </div>
+            <!-- Right: Telemetry & Cryptographic Seal -->
+            <div class="telemetry-column">
+              <span class="column-heading">Forensic Telemetry</span>
+              <div class="telemetry-table mb-4">
+                <div class="telemetry-row">
+                  <span class="telemetry-key">Perceptual Shift (&Delta;E&#8327;&#8326;)</span>
+                  <span id="report-delta-e" class="telemetry-val font-mono font-bold text-blue">&mdash;</span>
+                </div>
+                <div class="telemetry-row">
+                  <span class="telemetry-key">GPS Coordinate Fix</span>
+                  <span id="report-gps" class="telemetry-val font-mono">&mdash;</span>
+                </div>
+              </div>
 
-        <div class="report-actions">
-          <button id="btn-next-test" class="btn btn-secondary" type="button">
-            &plus; New Field Test
-          </button>
-          <button id="btn-view-in-vault" class="btn btn-primary" type="button">
-            View in Vault &rarr;
-          </button>
+              <!-- Full SHA-256 Seal Container -->
+              <div class="crypto-seal-box mb-6">
+                <div class="crypto-header">
+                  <svg class="crypto-icon-svg" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M2.166 4.999A11.954 11.954 0 0010 1.944 11.954 11.954 0 0017.834 5c.11.65.166 1.32.166 2.001 0 5.225-3.34 9.67-8 11.317C5.34 16.67 2 12.225 2 7c0-.682.057-1.35.166-2.001zm11.541 3.708a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+                  </svg>
+                  <span class="crypto-label">Canonical SHA-256 Cryptographic Seal</span>
+                </div>
+                <code id="report-sha256" class="hash-code">&mdash;</code>
+              </div>
+
+              <div class="report-actions">
+                <button id="btn-next-test" class="btn btn-secondary" type="button">
+                  <span>&plus; New Field Test</span>
+                </button>
+                <button id="btn-view-in-vault" class="btn btn-primary" type="button">
+                  <span>View in Evidence Vault &rarr;</span>
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </section>
 
     <!-- =========================================================================
-         VIEW 4: Read-Only Evidence Vault & Live Tamper Verifier
+         VIEW 4: Evidence Vault (Audit Trail & Live Tamper Verifier)
          ========================================================================= -->
     <section id="view-vault" class="view-panel hidden">
-      <div class="card vault-card">
-        <div class="vault-header">
+      <div class="view-container max-w-1100">
+        <div class="vault-header-row mb-6">
           <div>
-            <span class="phase-badge">Phase 4 &bull; Audit Trail</span>
-            <h2 class="card-title">Immutable Evidence Vault</h2>
-            <p class="card-description">
-              Forensic audit trail of all locked colorimetric field records. Verifies cryptographic hashes in real-time to detect database tampering.
+            <span class="badge-tag">Evidentiary Chain-of-Custody</span>
+            <h2 class="section-heading">Evidence Vault</h2>
+            <p class="section-subheading">
+              Permanent immutable records log. Click any record to verify byte-for-byte SHA-256 integrity in real-time.
             </p>
           </div>
-          <button id="btn-refresh-vault" class="btn btn-secondary" type="button">
-            &#8635; Refresh
+          <button id="btn-refresh-vault" class="btn btn-secondary btn-sm" type="button">
+            <svg class="btn-icon" viewBox="0 0 20 20" fill="currentColor">
+              <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd" />
+            </svg>
+            <span>Refresh Vault</span>
           </button>
         </div>
 
-        <!-- Live Tamper Verification Modal / Banner -->
+        <!-- Live Tamper Verification Banner -->
         <div id="tamper-verification-banner" class="verification-banner hidden" role="region" aria-live="polite">
           <!-- Dynamically populated with VERIFIED or TAMPERED status -->
         </div>
 
-        <!-- Vault Inspection Detail (When a specific case is verified) -->
-        <div id="vault-case-detail" class="vault-detail-card hidden">
-          <div class="detail-header">
-            <h3 id="vault-detail-case-id" class="case-id-display">NTV-XXXXXXXX-XXXXXX</h3>
-            <button id="btn-close-vault-detail" class="btn btn-secondary btn-sm" type="button">Close Inspector</button>
+        <!-- Vault Inspection Detail Modal/Card (When verifying a case) -->
+        <div id="vault-case-detail" class="card p-6 mb-6 hidden">
+          <div class="detail-header-row mb-4">
+            <div>
+              <span class="meta-label">Inspecting Case Record</span>
+              <h3 id="vault-detail-case-id" class="case-id-display">NTV-XXXXXXXX-XXXXXX</h3>
+            </div>
+            <button id="btn-close-vault-detail" class="btn btn-secondary btn-sm" type="button">
+              <span>Close Inspection</span>
+            </button>
           </div>
-          <div class="evidence-frames-grid">
-            <div class="frame-container">
-              <span class="frame-caption">Frame 1: Baseline (t=0s)</span>
-              <img id="vault-detail-frame1" class="evidence-thumbnail" alt="Vault Baseline Frame">
+          
+          <div class="report-grid">
+            <div class="frames-column">
+              <div class="evidence-frames-grid">
+                <div class="frame-card">
+                  <span class="frame-caption">Frame 1: Baseline (t=0s)</span>
+                  <div class="frame-aspect">
+                    <img id="vault-detail-frame1" class="evidence-thumbnail" alt="Vault Baseline Frame">
+                  </div>
+                </div>
+                <div class="frame-card">
+                  <span class="frame-caption">Frame 2: Reacted (t=&Delta;t)</span>
+                  <div class="frame-aspect">
+                    <img id="vault-detail-frame2" class="evidence-thumbnail" alt="Vault Reacted Frame">
+                  </div>
+                </div>
+              </div>
             </div>
-            <div class="frame-container">
-              <span class="frame-caption">Frame 2: Reacted (t=&Delta;t)</span>
-              <img id="vault-detail-frame2" class="evidence-thumbnail" alt="Vault Reacted Frame">
-            </div>
-          </div>
-          <div class="forensic-data-grid">
-            <div class="data-cell">
-              <span class="data-label">&Delta;E Shift</span>
-              <span id="vault-detail-delta-e" class="data-value highlight">&mdash;</span>
-            </div>
-            <div class="data-cell">
-              <span class="data-label">GPS Fix</span>
-              <span id="vault-detail-gps" class="data-value">&mdash;</span>
-            </div>
-            <div class="data-cell full-width">
-              <span class="data-label">Presumptive Classification</span>
-              <span id="vault-detail-result" class="data-value result-badge">&mdash;</span>
+            <div class="telemetry-column">
+              <div class="telemetry-table">
+                <div class="telemetry-row">
+                  <span class="telemetry-key">Perceptual Shift (&Delta;E)</span>
+                  <span id="vault-detail-delta-e" class="telemetry-val font-mono font-bold text-blue">&mdash;</span>
+                </div>
+                <div class="telemetry-row">
+                  <span class="telemetry-key">GPS Location Fix</span>
+                  <span id="vault-detail-gps" class="telemetry-val font-mono">&mdash;</span>
+                </div>
+                <div class="telemetry-row">
+                  <span class="telemetry-key">Classification Result</span>
+                  <span id="vault-detail-result" class="telemetry-val font-bold">&mdash;</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
 
-        <!-- Vault Records Table / Cards -->
-        <div class="table-responsive">
-          <table class="vault-table">
-            <thead>
-              <tr>
-                <th>Case ID</th>
-                <th>Server Timestamp (UTC)</th>
-                <th>Classification</th>
-                <th>&Delta;E</th>
-                <th>GPS Fix</th>
-                <th>Integrity Action</th>
-              </tr>
-            </thead>
-            <tbody id="vault-records-body">
-              <tr>
-                <td colspan="6" class="text-center text-muted">Loading evidence vault records...</td>
-              </tr>
-            </tbody>
-          </table>
+        <!-- Responsive Card Grid: 2 columns on desktop, 1 column on mobile (Zero Horizontal Overflow) -->
+        <div id="vault-records-body" class="vault-cards-grid">
+          <div class="vault-empty-state">Loading evidence records...</div>
         </div>
       </div>
     </section>
   </main>
 
   <footer class="app-footer">
-    <p>NarcoTest Vision (NTV) &bull; SE Academic Capstone &bull; IEEE-830 Compliant Cryptographic Evidence Architecture</p>
+    <div class="footer-container">
+      <p>NarcoTest Vision (NTV) &bull; IEEE-830 Compliant Cryptographic Evidence Architecture</p>
+    </div>
   </footer>
 
   <!-- Modular Scripts (Vanilla ES6, Zero Build Toolchain) -->
