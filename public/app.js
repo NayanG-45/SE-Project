@@ -1,19 +1,19 @@
 /**
  * NarcoTest Vision (NTV) — Client Application State Machine & Hardware Controller
  *
- * SPECIFICATION REFERENCE: README.md Section 6
- * Responsibilities:
- * - View Navigation (New Test Views 1-3 vs Evidence Vault View 4)
- * - View 1: Hardware Pre-Flight Gate (Camera & Geolocation Permissions)
- * - View 2: Automated 2-Frame Timed Capture (getUserMedia, Fixed Timer, ROI canvas extraction)
- * - View 3: Mathematical Analysis & Lock-Before-Display (POST /api/lock before result display)
- * - View 4: Immutable Evidence Vault & Live Tamper Verifier (GET /api/evidence & /:id/verify)
+ * SPECIFICATION REFERENCE: README.md Sections 3, 4, 6, and 7
  *
- * HARD PROHIBITIONS (Section 3):
- * - ZERO file inputs / gallery uploads.
+ * Architecture Compliance:
+ * - View 1: Pre-Flight Hardware Permission Gate (Camera + Geolocation)
+ * - View 2: Automated 2-Frame Timed Capture (500ms warm-up, t=0s, 5000ms countdown, t=deltaT, no manual tap)
+ * - View 3: Mathematical Quality Gate + Local Math + Lock-Before-Display (POST /api/lock before result display)
+ * - View 4: Immutable Evidence Vault + Live Tamper Verifier (GET /api/evidence & /:id/verify)
+ *
+ * HARD PROHIBITIONS (README.md Section 3):
+ * - ZERO file inputs or gallery pickers (<input type="file"> is strictly banned).
  * - ZERO authentication / user login.
  * - ZERO mutating API calls (PUT, PATCH, DELETE).
- * - ZERO external ML or AI classification APIs.
+ * - ZERO external ML or AI classification APIs (100% deterministic local math).
  */
 
 import {
@@ -24,29 +24,22 @@ import {
   classifyReaction
 } from './colorMath.js';
 
-// Configuration Constants
-const REACTION_DELAY_MS = 5000; // 5000ms (5s) for live testing/demo; configurable to 30000-60000ms for field reagents
-const CAPTURE_WIDTH = 480;
-const CAPTURE_HEIGHT = 360;
-const ROI_SIZE = 100;
+// Configuration Constants per Specification (README.md Section 6)
+const REACTION_DELAY_MS = 5000; // 5000ms (5s) for live testing/demo
+const CAPTURE_MAX_WIDTH = 480;  // Max width for lightweight payload
+const ROI_SIZE = 100;           // Fixed 100x100 px centered reticle sampling zone
 
-// Application State
+// Central Application State
 const state = {
   activeView: 'view-permissions',
   cameraGranted: false,
   gpsGranted: false,
   gpsCoords: null, // { lat: number, lng: number }
   mediaStream: null,
-  isCapturing: false,
-  capturedData: {
-    frame_1: null, // Base64 JPEG
-    frame_2: null, // Base64 JPEG
-    delta_e: null,
-    matched_result: null
-  }
+  isCapturing: false
 };
 
-// DOM Elements
+// Cached DOM Elements
 const elements = {
   // Navigation
   navBtnTest: document.getElementById('nav-btn-test'),
@@ -58,7 +51,7 @@ const elements = {
   viewAnalysis: document.getElementById('view-analysis'),
   viewVault: document.getElementById('view-vault'),
 
-  // View 1
+  // View 1: Pre-Flight Gate
   badgeCameraStatus: document.getElementById('badge-camera-status'),
   badgeGpsStatus: document.getElementById('badge-gps-status'),
   labelGpsCoords: document.getElementById('label-gps-coords'),
@@ -66,18 +59,20 @@ const elements = {
   btnStartTest: document.getElementById('btn-start-test'),
   permissionErrorAlert: document.getElementById('permission-error-alert'),
 
-  // View 2
+  // View 2: Live Capture
   cameraFeed: document.getElementById('camera-feed'),
   captureCanvas: document.getElementById('capture-canvas'),
   timerDisplay: document.getElementById('timer-display'),
   captureStatusOverlay: document.getElementById('capture-status-overlay'),
   captureStatusText: document.getElementById('capture-status-text'),
   qualityGateError: document.getElementById('quality-gate-error'),
+  qualityGateErrorText: document.getElementById('quality-gate-error-text'),
+  btnRetryCapture: document.getElementById('btn-retry-capture'),
   stepBaseline: document.getElementById('step-baseline'),
   stepReaction: document.getElementById('step-reaction'),
   stepReacted: document.getElementById('step-reacted'),
 
-  // View 3
+  // View 3: Lock-Before-Display
   lockingSpinner: document.getElementById('locking-spinner'),
   lockedReportContainer: document.getElementById('locked-report-container'),
   reportCaseId: document.getElementById('report-case-id'),
@@ -91,18 +86,31 @@ const elements = {
   btnNextTest: document.getElementById('btn-next-test'),
   btnViewInVault: document.getElementById('btn-view-in-vault'),
 
-  // View 4
+  // View 4: Evidence Vault
   btnRefreshVault: document.getElementById('btn-refresh-vault'),
   vaultRecordsBody: document.getElementById('vault-records-body'),
-  tamperVerificationBanner: document.getElementById('tamper-verification-banner')
+  tamperVerificationBanner: document.getElementById('tamper-verification-banner'),
+  vaultCaseDetail: document.getElementById('vault-case-detail'),
+  vaultDetailCaseId: document.getElementById('vault-detail-case-id'),
+  btnCloseVaultDetail: document.getElementById('btn-close-vault-detail'),
+  vaultDetailFrame1: document.getElementById('vault-detail-frame1'),
+  vaultDetailFrame2: document.getElementById('vault-detail-frame2'),
+  vaultDetailDeltaE: document.getElementById('vault-detail-delta-e'),
+  vaultDetailGps: document.getElementById('vault-detail-gps'),
+  vaultDetailResult: document.getElementById('vault-detail-result')
 };
 
 /* =============================================================================
    View Switching & State Navigation
    ============================================================================= */
 function switchView(targetViewId) {
-  // TODO: Switch active panel visibility and update navigation button states
-  const views = [elements.viewPermissions, elements.viewCapture, elements.viewAnalysis, elements.viewVault];
+  const views = [
+    elements.viewPermissions,
+    elements.viewCapture,
+    elements.viewAnalysis,
+    elements.viewVault
+  ];
+
   views.forEach(v => {
     if (v.id === targetViewId) {
       v.classList.remove('hidden');
@@ -126,159 +134,200 @@ function switchView(targetViewId) {
 }
 
 /* =============================================================================
-   View 1: Pre-Flight Hardware Permission Gate
+   View 1: Pre-Flight Hardware Permission Gate (Fail-Fast Pre-condition)
    ============================================================================= */
 async function requestHardwarePermissions() {
-  // TODO: Request camera and GPS hardware permissions, update status badges, and enable "Perform Test"
   elements.permissionErrorAlert.classList.add('hidden');
+  elements.permissionErrorAlert.textContent = '';
 
+  let cameraOk = false;
+  let gpsOk = false;
+  const errors = [];
+
+  // 1. Hardware Camera Stream Check
   try {
-    // 1. Camera check
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'environment', width: { ideal: CAPTURE_WIDTH }, height: { ideal: CAPTURE_HEIGHT } }
-    });
-    // Release stream after permission verification
-    stream.getTracks().forEach(track => track.stop());
+    let testStream;
+    try {
+      testStream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 640 },
+          height: { ideal: 480 }
+        }
+      });
+    } catch {
+      // Fallback to any available video stream (e.g. laptop front camera)
+      testStream = await navigator.mediaDevices.getUserMedia({ video: true });
+    }
+
+    testStream.getTracks().forEach(track => track.stop());
+    cameraOk = true;
     state.cameraGranted = true;
     elements.badgeCameraStatus.textContent = 'GRANTED';
     elements.badgeCameraStatus.className = 'badge badge-granted';
   } catch (err) {
+    cameraOk = false;
     state.cameraGranted = false;
     elements.badgeCameraStatus.textContent = 'DENIED';
     elements.badgeCameraStatus.className = 'badge badge-denied';
-    showPermissionError('Camera permission denied: ' + err.message);
+    errors.push('Camera: ' + (err.message || 'Access denied by user or device'));
   }
 
+  // 2. Hardware Geolocation (GPS) Fix Check
   try {
-    // 2. Geolocation check
-    await new Promise((resolve, reject) => {
-      if (!navigator.geolocation) {
-        return reject(new Error('Geolocation not supported by device'));
-      }
+    if (!navigator.geolocation) {
+      throw new Error('Geolocation API not supported by browser environment');
+    }
+
+    const pos = await new Promise((resolve, reject) => {
       navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          state.gpsGranted = true;
-          state.gpsCoords = {
-            lat: pos.coords.latitude,
-            lng: pos.coords.longitude
-          };
-          elements.badgeGpsStatus.textContent = 'ACQUIRED';
-          elements.badgeGpsStatus.className = 'badge badge-granted';
-          elements.labelGpsCoords.textContent = `${pos.coords.latitude.toFixed(6)}, ${pos.coords.longitude.toFixed(6)}`;
-          resolve(pos);
-        },
-        (err) => {
-          state.gpsGranted = false;
-          elements.badgeGpsStatus.textContent = 'DENIED';
-          elements.badgeGpsStatus.className = 'badge badge-denied';
-          elements.labelGpsCoords.textContent = 'Position unavailable';
-          reject(err);
-        },
+        resolve,
+        reject,
         { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
       );
     });
+
+    gpsOk = true;
+    state.gpsGranted = true;
+    state.gpsCoords = {
+      lat: pos.coords.latitude,
+      lng: pos.coords.longitude
+    };
+    elements.badgeGpsStatus.textContent = 'ACQUIRED';
+    elements.badgeGpsStatus.className = 'badge badge-granted';
+    elements.labelGpsCoords.textContent = `${pos.coords.latitude.toFixed(6)}, ${pos.coords.longitude.toFixed(6)}`;
   } catch (err) {
-    showPermissionError('GPS location failed: ' + err.message);
+    gpsOk = false;
+    state.gpsGranted = false;
+    elements.badgeGpsStatus.textContent = 'DENIED';
+    elements.badgeGpsStatus.className = 'badge badge-denied';
+    elements.labelGpsCoords.textContent = 'GPS fix unavailable';
+    errors.push('GPS: ' + (err.message || 'Position unavailable or denied'));
   }
 
-  // Hard Gate check: both must be granted
-  if (state.cameraGranted && state.gpsGranted) {
+  // Hard Gate: Perform Test button strictly enabled ONLY when both are active
+  if (cameraOk && gpsOk) {
     elements.btnStartTest.disabled = false;
+    elements.btnStartTest.focus();
   } else {
     elements.btnStartTest.disabled = true;
+    elements.permissionErrorAlert.textContent = `Authorization incomplete: ${errors.join(' | ')}`;
+    elements.permissionErrorAlert.classList.remove('hidden');
   }
-}
-
-function showPermissionError(msg) {
-  elements.permissionErrorAlert.textContent = msg;
-  elements.permissionErrorAlert.classList.remove('hidden');
 }
 
 /* =============================================================================
-   View 2: Automated 2-Frame Timed Capture Sequence
+   View 2: Automated 2-Frame Timed Capture Sequence (Zero Manual Triggering)
    ============================================================================= */
 async function startCaptureSequence() {
-  // TODO: Start live camera feed, sample Frame 1 at t=0s, countdown REACTION_DELAY_MS, sample Frame 2 at t=deltaT
+  if (!state.cameraGranted || !state.gpsGranted) {
+    switchView('view-permissions');
+    return;
+  }
+
   switchView('view-capture');
   elements.qualityGateError.classList.add('hidden');
   resetCaptureIndicators();
+  state.isCapturing = true;
 
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode: 'environment',
-        width: { ideal: CAPTURE_WIDTH },
-        height: { ideal: CAPTURE_HEIGHT }
-      }
-    });
+    // Initialize live camera (prefer environment, fallback gracefully to laptop default)
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 640 },
+          height: { ideal: 480 }
+        }
+      });
+    } catch {
+      stream = await navigator.mediaDevices.getUserMedia({ video: true });
+    }
 
     state.mediaStream = stream;
     elements.cameraFeed.srcObject = stream;
     await elements.cameraFeed.play();
 
-    // Stabilization delay (500ms) before t=0s baseline capture
-    setCaptureStatus('Warming up sensor stream...', true);
+    // 1. Sensor Stream Stabilization (500ms warm-up)
+    setCaptureStatus('Warming up optical sensor (500ms)...', true);
     await delay(500);
 
-    // Frame 1: Baseline Capture (t=0s)
-    setCaptureStatus('Capturing Baseline Frame (t=0s)...', true);
+    // 2. Automated Baseline Capture (t = 0s)
+    setCaptureStatus('Sampling Baseline Frame (t=0s)...', true);
     elements.stepBaseline.classList.add('active');
-    const frame1Result = captureFrameAndROI();
+    const frame1 = captureFrameAndCenterROI();
 
-    // Quality Gate Check on Frame 1
-    const qg1 = evaluateQualityGate(frame1Result.roiImageData);
+    // Mathematical Quality Gate on Frame 1
+    const qg1 = evaluateQualityGate(frame1.roiImageData);
     if (!qg1.valid) {
-      abortCapture('Frame 1 (Baseline) Rejected: ' + qg1.reason);
+      abortCapture(`Baseline Frame Failed Quality Gate: ${qg1.reason}`);
       return;
     }
 
     elements.stepBaseline.classList.remove('active');
     elements.stepBaseline.classList.add('complete');
 
-    // Reaction Countdown
+    // 3. Chemical Reaction Countdown (Uninterruptible REACTION_DELAY_MS = 5000)
     elements.stepReaction.classList.add('active');
-    setCaptureStatus('Chemical Reaction Window Active...', true);
+    setCaptureStatus('Reaction Window Active — Align vial in reticle...', true);
     await runCountdown(REACTION_DELAY_MS);
     elements.stepReaction.classList.remove('active');
     elements.stepReaction.classList.add('complete');
 
-    // Frame 2: Reacted Capture (t=deltaT)
-    setCaptureStatus('Capturing Reacted Frame (t=\u0394t)...', true);
+    // 4. Automated Reacted Capture (t = deltaT, zero manual user tap)
+    setCaptureStatus('Sampling Reacted Frame (t=\u0394t)...', true);
     elements.stepReacted.classList.add('active');
-    const frame2Result = captureFrameAndROI();
+    const frame2 = captureFrameAndCenterROI();
 
-    // Stop camera immediately
+    // Stop camera hardware tracks immediately
     stopCamera();
 
-    // Quality Gate Check on Frame 2
-    const qg2 = evaluateQualityGate(frame2Result.roiImageData);
+    // Mathematical Quality Gate on Frame 2
+    const qg2 = evaluateQualityGate(frame2.roiImageData);
     if (!qg2.valid) {
-      abortCapture('Frame 2 (Reacted) Rejected: ' + qg2.reason);
+      abortCapture(`Reacted Frame Failed Quality Gate: ${qg2.reason}`);
       return;
     }
 
     elements.stepReacted.classList.remove('active');
     elements.stepReacted.classList.add('complete');
     setCaptureStatus('', false);
+    state.isCapturing = false;
 
-    // Transition to Mathematical Analysis & Lock-Before-Display
-    processAndLockEvidence(frame1Result, frame2Result);
+    // Transition to Mathematical Processing & Lock-Before-Display
+    processAndLockEvidence(frame1, frame2);
 
   } catch (err) {
     stopCamera();
-    abortCapture('Camera initialization error: ' + err.message);
+    abortCapture('Camera initialization failed: ' + (err.message || 'Stream error'));
   }
 }
 
-function captureFrameAndROI() {
+/**
+ * Extracts resized video frame (max width 480px, Base64 JPEG 0.8) and center 100x100 ROI.
+ */
+function captureFrameAndCenterROI() {
   const canvas = elements.captureCanvas;
-  const ctx = canvas.getContext('2d');
-  canvas.width = CAPTURE_WIDTH;
-  canvas.height = CAPTURE_HEIGHT;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const video = elements.cameraFeed;
 
-  ctx.drawImage(elements.cameraFeed, 0, 0, CAPTURE_WIDTH, CAPTURE_HEIGHT);
+  const videoW = video.videoWidth || 640;
+  const videoH = video.videoHeight || 480;
+
+  // Scale down to max width 480 maintaining aspect ratio (Section 6)
+  const targetW = Math.min(CAPTURE_MAX_WIDTH, videoW);
+  const targetH = Math.round((videoH / videoW) * targetW);
+
+  canvas.width = targetW;
+  canvas.height = targetH;
+
+  // Draw full video frame onto canvas
+  ctx.drawImage(video, 0, 0, targetW, targetH);
   const base64Jpeg = canvas.toDataURL('image/jpeg', 0.8);
-  const roiImageData = extractCenterROI(ctx, CAPTURE_WIDTH, CAPTURE_HEIGHT, ROI_SIZE);
+
+  // Extract center 100x100 Region of Interest (ROI)
+  const roiImageData = extractCenterROI(ctx, targetW, targetH, ROI_SIZE);
 
   return { base64Jpeg, roiImageData };
 }
@@ -296,7 +345,7 @@ function runCountdown(durationMs) {
         elements.timerDisplay.textContent = '0.00s';
         resolve();
       }
-    }, 50);
+    }, 40);
   });
 }
 
@@ -322,11 +371,12 @@ function stopCamera() {
     state.mediaStream = null;
   }
   elements.cameraFeed.srcObject = null;
+  state.isCapturing = false;
 }
 
 function abortCapture(reason) {
   stopCamera();
-  elements.qualityGateError.textContent = `INVALID CAPTURE: ${reason} — RETRY TEST`;
+  elements.qualityGateErrorText.textContent = `INVALID CAPTURE: ${reason} — RETRY TEST`;
   elements.qualityGateError.classList.remove('hidden');
   setCaptureStatus('', false);
 }
@@ -334,15 +384,16 @@ function abortCapture(reason) {
 /* =============================================================================
    View 3: Local Mathematical Analysis & Lock-Before-Display Protocol
    ============================================================================= */
-async function processAndLockEvidence(frame1Data, frame2Data) {
-  // TODO: Compute CIELAB shift & reagent match, then POST to /api/lock before displaying results
+async function processAndLockEvidence(frame1, frame2) {
   switchView('view-analysis');
+
+  // Lock-Before-Display: Show locking spinner, do NOT display result yet
   elements.lockingSpinner.classList.remove('hidden');
   elements.lockedReportContainer.classList.add('hidden');
 
-  // 1. Deterministic mathematical color transformation
-  const rgb1 = computeAverageRGB(frame1Data.roiImageData);
-  const rgb2 = computeAverageRGB(frame2Data.roiImageData);
+  // 1. Synchronous Deterministic Colorimetric Transformation (README.md Section 7)
+  const rgb1 = computeAverageRGB(frame1.roiImageData);
+  const rgb2 = computeAverageRGB(frame2.roiImageData);
 
   const lab1 = rgbToCielab(rgb1.r, rgb1.g, rgb1.b);
   const lab2 = rgbToCielab(rgb2.r, rgb2.g, rgb2.b);
@@ -352,8 +403,8 @@ async function processAndLockEvidence(frame1Data, frame2Data) {
   // 2. Lock-Before-Display: POST /api/lock
   try {
     const payload = {
-      frame_1: frame1Data.base64Jpeg,
-      frame_2: frame2Data.base64Jpeg,
+      frame_1: frame1.base64Jpeg,
+      frame_2: frame2.base64Jpeg,
       delta_e: parseFloat(classification.deltaE_shift.toFixed(4)),
       matched_result: classification.matchedResult,
       gps_lat: parseFloat(state.gpsCoords.lat.toFixed(6)),
@@ -373,12 +424,12 @@ async function processAndLockEvidence(frame1Data, frame2Data) {
 
     const lockedRecord = await res.json();
 
-    // 3. Render Locked Read-Only Report ONLY after server confirmation
+    // 3. Render Locked Read-Only Report ONLY after receiving HTTP 201 Created
     renderLockedReport(lockedRecord);
 
   } catch (err) {
     elements.lockingSpinner.classList.add('hidden');
-    alert('Cryptographic Lock Failed: ' + err.message + '\nEvidence was NOT committed.');
+    alert('Cryptographic Lock Failed: ' + err.message + '\nEvidence was NOT committed to the permanent vault.');
     switchView('view-permissions');
   }
 }
@@ -398,12 +449,12 @@ function renderLockedReport(record) {
 }
 
 /* =============================================================================
-   View 4: Evidence Vault & Live Tamper Verification
+   View 4: Read-Only Evidence Vault & Live Tamper Verifier
    ============================================================================= */
 async function loadVaultRecords() {
-  // TODO: Fetch records via GET /api/evidence and populate the vault table
-  elements.vaultRecordsBody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">Fetching locked evidence...</td></tr>';
+  elements.vaultRecordsBody.innerHTML = '<tr><td colspan="6" class="text-center text-muted" style="padding: 1.5rem;">Fetching locked evidence records...</td></tr>';
   elements.tamperVerificationBanner.classList.add('hidden');
+  elements.vaultCaseDetail.classList.add('hidden');
 
   try {
     const res = await fetch('/api/evidence');
@@ -411,7 +462,7 @@ async function loadVaultRecords() {
     const records = await res.json();
 
     if (!records || records.length === 0) {
-      elements.vaultRecordsBody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No evidence records locked yet.</td></tr>';
+      elements.vaultRecordsBody.innerHTML = '<tr><td colspan="6" class="text-center text-muted" style="padding: 1.5rem;">No evidence records committed to the vault yet.</td></tr>';
       return;
     }
 
@@ -419,33 +470,36 @@ async function loadVaultRecords() {
     records.forEach(rec => {
       const tr = document.createElement('tr');
       tr.innerHTML = `
-        <td><strong style="font-family: var(--font-mono);">${escapeHtml(rec.case_id)}</strong></td>
-        <td>${new Date(rec.server_timestamp).toUTCString()}</td>
+        <td><strong style="font-family: var(--font-mono); color: #fff;">${escapeHtml(rec.case_id)}</strong></td>
+        <td style="font-family: var(--font-mono); font-size: 0.75rem;">${new Date(rec.server_timestamp).toUTCString()}</td>
         <td><span class="badge badge-pending" style="font-size: 0.7rem;">${escapeHtml(rec.matched_result)}</span></td>
-        <td style="font-family: var(--font-mono);">${Number(rec.delta_e).toFixed(4)}</td>
+        <td style="font-family: var(--font-mono); color: var(--accent-cyan); font-weight: 600;">${Number(rec.delta_e).toFixed(4)}</td>
         <td style="font-family: var(--font-mono); font-size: 0.75rem;">${Number(rec.gps_lat).toFixed(6)}, ${Number(rec.gps_lng).toFixed(6)}</td>
         <td>
-          <button class="btn btn-secondary btn-verify" data-case-id="${escapeHtml(rec.case_id)}" style="padding: 0.25rem 0.6rem; font-size: 0.75rem;">
-            Verify Integrity
+          <button class="btn btn-secondary btn-sm btn-verify" data-case-id="${escapeHtml(rec.case_id)}">
+            Verify Integrity &rarr;
           </button>
         </td>
       `;
       elements.vaultRecordsBody.appendChild(tr);
     });
 
-    // Attach verify click handlers
+    // Attach click listeners for integrity verification
     document.querySelectorAll('.btn-verify').forEach(btn => {
-      btn.addEventListener('click', () => verifyRecordIntegrity(btn.dataset.caseId));
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        verifyRecordIntegrity(btn.dataset.caseId);
+      });
     });
 
   } catch (err) {
-    elements.vaultRecordsBody.innerHTML = `<tr><td colspan="6" class="text-center text-danger">Failed to load vault: ${err.message}</td></tr>`;
+    elements.vaultRecordsBody.innerHTML = `<tr><td colspan="6" class="text-center text-danger" style="padding: 1.5rem;">Failed to load vault records: ${err.message}</td></tr>`;
   }
 }
 
 async function verifyRecordIntegrity(caseId) {
-  // TODO: Call GET /api/evidence/:id/verify and display GREEN (VERIFIED) or RED (TAMPERED)
   try {
+    elements.tamperVerificationBanner.classList.add('hidden');
     const res = await fetch(`/api/evidence/${encodeURIComponent(caseId)}/verify`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const result = await res.json();
@@ -455,31 +509,53 @@ async function verifyRecordIntegrity(caseId) {
     if (result.status === 'VERIFIED') {
       elements.tamperVerificationBanner.classList.add('verified');
       elements.tamperVerificationBanner.innerHTML = `
-        <strong>&#10004; INTEGRITY VERIFIED (GREEN)</strong> &mdash; Case: <code>${escapeHtml(caseId)}</code><br>
-        <span style="font-size: 0.8rem;">SHA-256 Digest matches stored byte-for-byte:</span><br>
-        <code style="word-break: break-all; font-size: 0.75rem;">${escapeHtml(result.stored_hash)}</code>
+        <strong>&#10004; INTEGRITY VERIFIED (GREEN) &bull; Case: <code>${escapeHtml(caseId)}</code></strong><br>
+        <span style="font-size: 0.8rem;">Authoritative server recomputation matches stored SHA-256 seal byte-for-byte:</span>
+        <div class="hash-comparison-grid">
+          <div class="hash-box">
+            <span class="hash-box-label">Verified SHA-256 Hash Digest:</span>
+            <code style="color: var(--color-success);">${escapeHtml(result.stored_hash)}</code>
+          </div>
+        </div>
       `;
     } else {
       elements.tamperVerificationBanner.classList.add('tampered');
       elements.tamperVerificationBanner.innerHTML = `
-        <strong>&#9888; TAMPERING DETECTED (RED ALERT)</strong> &mdash; Case: <code>${escapeHtml(caseId)}</code><br>
-        <span style="font-size: 0.8rem;">Database row corruption or unauthorized modification detected!</span><br>
-        <div style="font-size: 0.75rem; margin-top: 0.5rem; word-break: break-all;">
-          <strong>Stored Hash:</strong> <code>${escapeHtml(result.stored_hash)}</code><br>
-          <strong>Recomputed Hash:</strong> <code>${escapeHtml(result.computed_hash)}</code>
+        <strong>&#9888; TAMPERING DETECTED (RED ALERT) &bull; Case: <code>${escapeHtml(caseId)}</code></strong><br>
+        <span style="font-size: 0.8rem;">Cryptographic signature divergence detected! Database row has been altered:</span>
+        <div class="hash-comparison-grid">
+          <div class="hash-box">
+            <span class="hash-box-label">Stored Hash in Vault:</span>
+            <code style="color: var(--color-warning);">${escapeHtml(result.stored_hash)}</code>
+          </div>
+          <div class="hash-box">
+            <span class="hash-box-label">Recomputed Canonical Hash:</span>
+            <code style="color: var(--color-danger);">${escapeHtml(result.computed_hash)}</code>
+          </div>
         </div>
       `;
     }
 
-    elements.tamperVerificationBanner.scrollIntoView({ behavior: 'smooth' });
+    // Populate Inspection Detail Panel if full record was returned
+    if (result.record) {
+      elements.vaultDetailCaseId.textContent = result.record.case_id;
+      elements.vaultDetailFrame1.src = result.record.frame_1;
+      elements.vaultDetailFrame2.src = result.record.frame_2;
+      elements.vaultDetailDeltaE.textContent = Number(result.record.delta_e).toFixed(4);
+      elements.vaultDetailGps.textContent = `${Number(result.record.gps_lat).toFixed(6)}, ${Number(result.record.gps_lng).toFixed(6)}`;
+      elements.vaultDetailResult.textContent = result.record.matched_result;
+      elements.vaultCaseDetail.classList.remove('hidden');
+    }
+
+    elements.tamperVerificationBanner.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
   } catch (err) {
-    alert('Verification request failed: ' + err.message);
+    alert('Integrity verification request failed: ' + err.message);
   }
 }
 
 /* =============================================================================
-   Utilities & Event Listeners
+   Utilities & Event Wiring
    ============================================================================= */
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -495,16 +571,36 @@ function escapeHtml(str) {
     .replace(/'/g, '&#039;');
 }
 
-// Event Listeners
+// Navigation Events
 elements.navBtnTest.addEventListener('click', () => switchView('view-permissions'));
 elements.navBtnVault.addEventListener('click', () => switchView('view-vault'));
+
+// View 1 Events
 elements.btnRequestPerms.addEventListener('click', requestHardwarePermissions);
 elements.btnStartTest.addEventListener('click', startCaptureSequence);
-elements.btnRefreshVault.addEventListener('click', loadVaultRecords);
-elements.btnNextTest.addEventListener('click', () => switchView('view-permissions'));
-elements.btnViewInVault.addEventListener('click', () => switchView('view-vault'));
 
-// Auto-request or check permissions on initial page load if supported
+// View 2 Events
+elements.btnRetryCapture.addEventListener('click', () => {
+  elements.qualityGateError.classList.add('hidden');
+  startCaptureSequence();
+});
+
+// View 3 Events
+elements.btnNextTest.addEventListener('click', () => {
+  switchView('view-permissions');
+});
+elements.btnViewInVault.addEventListener('click', () => {
+  switchView('view-vault');
+});
+
+// View 4 Events
+elements.btnRefreshVault.addEventListener('click', loadVaultRecords);
+elements.btnCloseVaultDetail.addEventListener('click', () => {
+  elements.vaultCaseDetail.classList.add('hidden');
+});
+
+// Page Initialization
 window.addEventListener('DOMContentLoaded', () => {
-  // Initial ready state
+  // Ensure "Perform Test" is strictly disabled on load
+  elements.btnStartTest.disabled = true;
 });

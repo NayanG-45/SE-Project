@@ -19,6 +19,7 @@ This `README.md` is a **living specification**. Before making changes, distingui
 ### Change Log (Auto-Updated by AI)
 - `2026-11-24`: Initial architecture & spec locked.
 - `2026-11-24`: Complete backend and math engine implemented and verified (SQLite append-only layer, canonical SHA-256 locking, 405 mutation guard, Quality Gate, sRGB->CIELAB D65 pipeline, and tamper detection).
+- `2026-11-24`: Mobile-first frontend implementation complete (Views 1–4, responsive CSS, hardware permission gate, 2-frame automated capture state machine, Lock-Before-Display presentation, Evidence Vault inspection & tamper verifier). Verified on mobile viewport (390×844) via Chrome DevTools with 0 console/network errors.
 
 # NarcoTest Vision (NTV) — Complete Technical Specification & Architecture Blueprint
 
