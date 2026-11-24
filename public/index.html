@@ -173,13 +173,44 @@
           <!-- Right Column: Timer & Sequence Indicators -->
           <div class="card p-6 flex flex-col justify-between">
             <div>
-              <div class="timer-card mb-6">
+              <div class="timer-card mb-4">
                 <span class="timer-label">Reaction Incubation Window</span>
                 <span id="timer-display" class="countdown-badge">5.00s</span>
                 <span class="timer-sub">Uninterruptible automated countdown</span>
               </div>
 
-              <div class="capture-indicators mb-6">
+              <!-- View 2 — Step 1: Alignment & Preparation Box -->
+              <div id="capture-step-prep" class="prep-instruction-box mb-4">
+                <div class="prep-badge">Step 1: Alignment &amp; Preparation</div>
+                <ol class="prep-list">
+                  <li>Place the dry sample inside the reticle before adding reagent.</li>
+                  <li>Click &lsquo;Capture Baseline Sample&rsquo;.</li>
+                  <li>Add chemical reagent only when prompted.</li>
+                </ol>
+                <button id="btn-capture-baseline" class="btn btn-primary btn-lg w-full mt-3" type="button">
+                  <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                    <circle cx="12" cy="13" r="4"/>
+                  </svg>
+                  <span>Capture Baseline Sample (Frame 1)</span>
+                </button>
+              </div>
+
+              <!-- View 2 — Step 2: Reagent Prompt Box -->
+              <div id="capture-step-reagent" class="reagent-instruction-box mb-4 hidden">
+                <div class="reagent-badge">Step 2: Add Reagent</div>
+                <p class="reagent-alert-text">
+                  <strong>Baseline locked.</strong> Add the chemical reagent to the sample now, then immediately click below.
+                </p>
+                <button id="btn-start-reaction" class="btn btn-warning btn-lg w-full mt-3" type="button">
+                  <svg class="btn-icon" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd"/>
+                  </svg>
+                  <span>Reagent Added &mdash; Start 5s Reaction</span>
+                </button>
+              </div>
+
+              <div class="capture-indicators mb-4">
                 <div id="step-baseline" class="step-indicator">
                   <span class="step-dot"></span>
                   <div class="step-details">

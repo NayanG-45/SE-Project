@@ -348,6 +348,16 @@ code, pre {
   border-color: var(--border-hover);
 }
 
+.btn-warning {
+  background: #D97706;
+  color: #FFFFFF;
+  box-shadow: 0 1px 2px rgba(217, 119, 6, 0.25);
+}
+
+.btn-warning:hover:not(:disabled) {
+  background: #B45309;
+}
+
 .btn-lg {
   font-size: 0.9375rem;
   padding: 0.8125rem 1.5rem;
@@ -737,6 +747,64 @@ code, pre {
   font-size: 0.725rem;
   color: var(--text-muted);
   display: block;
+}
+
+/* View 2 Preparation and Reagent Instruction Boxes */
+.prep-instruction-box {
+  background: #F8FAFC;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 1rem;
+}
+
+.prep-badge {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-sub);
+  background: #EEF2F6;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  display: inline-block;
+  margin-bottom: 0.5rem;
+}
+
+.prep-list {
+  padding-left: 1.25rem;
+  font-size: 0.8125rem;
+  color: var(--text-main);
+  line-height: 1.5;
+}
+
+.prep-list li {
+  margin-bottom: 0.25rem;
+}
+
+.reagent-instruction-box {
+  background: #FFFBEB;
+  border: 1px solid #FDE68A;
+  border-radius: var(--radius-md);
+  padding: 1.25rem;
+}
+
+.reagent-badge {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #B45309;
+  background: #FEF3C7;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  display: inline-block;
+  margin-bottom: 0.5rem;
+}
+
+.reagent-alert-text {
+  font-size: 0.875rem;
+  color: #92400E;
+  line-height: 1.5;
 }
 
 /* =============================================================================
@@ -1138,6 +1206,30 @@ code, pre {
 
 .btn-full {
   width: 100%;
+}
+
+.vault-card-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.vault-card-actions .btn {
+  flex: 1;
+  min-width: 130px;
+  text-align: center;
+}
+
+.btn-view-report {
+  background: var(--primary);
+  color: #FFFFFF;
+  border: 1px solid var(--primary);
+  box-shadow: 0 1px 2px rgba(37, 99, 235, 0.2);
+}
+
+.btn-view-report:hover {
+  background: var(--primary-hover);
 }
 
 /* =============================================================================

@@ -55,7 +55,7 @@ app.use(express.static(path.join(__dirname, '..', 'public')));
 /**
  * 8. Cryptographic Integrity & Canonical Hashing Protocol
  * Strictly deterministic pipe-delimited canonical string to prevent formatting drift:
- * case_id|frame_1|frame_2|delta_e(4dp)|matched_result|gps_lat(6dp)|gps_lng(6dp)|server_timestamp
+ * case_id|frame_1|frame_2|frame_3|delta_e_pre(4dp)|delta_e(4dp)|matched_result|gps_lat(6dp)|gps_lng(6dp)|server_timestamp
  *
  * @param {Object} record
  * @returns {string} SHA-256 hex digest (64 characters)
@@ -65,6 +65,8 @@ function computeEvidenceHash(record) {
     String(record.case_id),
     String(record.frame_1),
     String(record.frame_2),
+    String(record.frame_3),
+    Number(record.delta_e_pre).toFixed(4),
     Number(record.delta_e).toFixed(4),
     String(record.matched_result),
     Number(record.gps_lat).toFixed(6),
@@ -97,13 +99,13 @@ function generateCaseId() {
 
 /**
  * POST /api/lock
- * Receives: { frame_1, frame_2, delta_e, matched_result, gps_lat, gps_lng }
+ * Receives: { frame_1, frame_2, frame_3, delta_e_pre, delta_e, matched_result, gps_lat, gps_lng }
  * Generates: case_id, server_timestamp, sha256_hash
  * Returns: 201 Created with full locked record
  */
 app.post('/api/lock', async (req, res) => {
   try {
-    const { frame_1, frame_2, delta_e, matched_result, gps_lat, gps_lng } = req.body;
+    const { frame_1, frame_2, frame_3, delta_e_pre, delta_e, matched_result, gps_lat, gps_lng } = req.body;
 
     // Strict Request Body Validation
     if (!frame_1 || typeof frame_1 !== 'string' || !frame_1.trim()) {
@@ -111,6 +113,12 @@ app.post('/api/lock', async (req, res) => {
     }
     if (!frame_2 || typeof frame_2 !== 'string' || !frame_2.trim()) {
       return res.status(400).json({ error: 'Missing or invalid frame_2 (Base64 JPEG string required)' });
+    }
+    if (!frame_3 || typeof frame_3 !== 'string' || !frame_3.trim()) {
+      return res.status(400).json({ error: 'Missing or invalid frame_3 (Base64 JPEG string required)' });
+    }
+    if (delta_e_pre === undefined || typeof delta_e_pre !== 'number' || !Number.isFinite(delta_e_pre)) {
+      return res.status(400).json({ error: 'Missing or invalid delta_e_pre (finite number required)' });
     }
     if (delta_e === undefined || typeof delta_e !== 'number' || !Number.isFinite(delta_e)) {
       return res.status(400).json({ error: 'Missing or invalid delta_e (finite number required)' });
@@ -133,6 +141,8 @@ app.post('/api/lock', async (req, res) => {
       case_id,
       frame_1,
       frame_2,
+      frame_3,
+      delta_e_pre,
       delta_e,
       matched_result,
       gps_lat,

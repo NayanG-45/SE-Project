@@ -6,7 +6,7 @@
  *
  * Architecture Compliance:
  * - View 1: Pre-Flight Hardware Permission Gate (Camera + Geolocation)
- * - View 2: Automated 2-Frame Timed Capture (500ms warm-up, t=0s, 5000ms countdown, t=deltaT, no manual tap)
+ * - View 2: Automated Guided Capture & Kinetic Incubation (Baseline -> Reagent -> 5s Incubation -> Reacted)
  * - View 3: Mathematical Quality Gate + Local Math + Lock-Before-Display (POST /api/lock before result display)
  * - View 4: Immutable Evidence Vault + Live Tamper Verifier (Stacked Mobile Cards, zero horizontal scroll on 390px)
  *
@@ -22,7 +22,8 @@ import {
   evaluateQualityGate,
   computeAverageRGB,
   rgbToCielab,
-  classifyReaction
+  classifyReaction,
+  evaluateThreeFrameAnalysis
 } from './colorMath.js';
 
 // Configuration Constants per Specification (README.md Section 6)
@@ -37,69 +38,95 @@ const state = {
   gpsGranted: false,
   gpsCoords: null, // { lat: number, lng: number }
   mediaStream: null,
-  isCapturing: false
+  isCapturing: false,
+  frame1: null,
+  frame2: null,
+  frame3: null
 };
 
-// Cached DOM Elements
-const elements = {
+// DOM ID Mapping Table
+const ID_MAP = {
   // Navigation
-  navBtnTest: document.getElementById('nav-btn-test'),
-  navBtnVault: document.getElementById('nav-btn-vault'),
+  navBtnTest: 'nav-btn-test',
+  navBtnVault: 'nav-btn-vault',
 
   // Views
-  viewPermissions: document.getElementById('view-permissions'),
-  viewCapture: document.getElementById('view-capture'),
-  viewAnalysis: document.getElementById('view-analysis'),
-  viewVault: document.getElementById('view-vault'),
+  viewPermissions: 'view-permissions',
+  viewCapture: 'view-capture',
+  viewAnalysis: 'view-analysis',
+  viewVault: 'view-vault',
 
   // View 1: Pre-Flight Gate
-  badgeCameraStatus: document.getElementById('badge-camera-status'),
-  badgeGpsStatus: document.getElementById('badge-gps-status'),
-  labelGpsCoords: document.getElementById('label-gps-coords'),
-  btnRequestPerms: document.getElementById('btn-request-perms'),
-  btnStartTest: document.getElementById('btn-start-test'),
-  permissionErrorAlert: document.getElementById('permission-error-alert'),
+  badgeCameraStatus: 'badge-camera-status',
+  badgeGpsStatus: 'badge-gps-status',
+  labelGpsCoords: 'label-gps-coords',
+  btnRequestPerms: 'btn-request-perms',
+  btnStartTest: 'btn-start-test',
+  permissionErrorAlert: 'permission-error-alert',
 
-  // View 2: Live Capture
-  cameraFeed: document.getElementById('camera-feed'),
-  captureCanvas: document.getElementById('capture-canvas'),
-  timerDisplay: document.getElementById('timer-display'),
-  captureStatusOverlay: document.getElementById('capture-status-overlay'),
-  captureStatusText: document.getElementById('capture-status-text'),
-  qualityGateError: document.getElementById('quality-gate-error'),
-  qualityGateErrorText: document.getElementById('quality-gate-error-text'),
-  btnRetryCapture: document.getElementById('btn-retry-capture'),
-  stepBaseline: document.getElementById('step-baseline'),
-  stepReaction: document.getElementById('step-reaction'),
-  stepReacted: document.getElementById('step-reacted'),
+  // View 2: Live Capture & Instructions
+  cameraFeed: 'camera-feed',
+  captureCanvas: 'capture-canvas',
+  timerDisplay: 'timer-display',
+  captureStatusOverlay: 'capture-status-overlay',
+  captureStatusText: 'capture-status-text',
+  qualityGateError: 'quality-gate-error',
+  qualityGateErrorText: 'quality-gate-error-text',
+  btnRetryCapture: 'btn-retry-capture',
+  stepBaseline: 'step-baseline',
+  stepReaction: 'step-reaction',
+  stepReacted: 'step-reacted',
+  captureStepPrep: 'capture-step-prep',
+  btnCaptureBaseline: 'btn-capture-baseline',
+  captureStepReagent: 'capture-step-reagent',
+  btnStartReaction: 'btn-start-reaction',
 
   // View 3: Lock-Before-Display
-  lockingSpinner: document.getElementById('locking-spinner'),
-  lockedReportContainer: document.getElementById('locked-report-container'),
-  reportCaseId: document.getElementById('report-case-id'),
-  reportTimestamp: document.getElementById('report-timestamp'),
-  imgBaseline: document.getElementById('img-baseline'),
-  imgReacted: document.getElementById('img-reacted'),
-  reportDeltaE: document.getElementById('report-delta-e'),
-  reportGps: document.getElementById('report-gps'),
-  reportMatchedResult: document.getElementById('report-matched-result'),
-  reportSha256: document.getElementById('report-sha256'),
-  btnNextTest: document.getElementById('btn-next-test'),
-  btnViewInVault: document.getElementById('btn-view-in-vault'),
+  lockingSpinner: 'locking-spinner',
+  lockedReportContainer: 'locked-report-container',
+  reportCaseId: 'report-case-id',
+  reportTimestamp: 'report-timestamp',
+  imgBaseline: 'img-baseline',
+  imgReacted: 'img-reacted',
+  reportDeltaE: 'report-delta-e',
+  reportGps: 'report-gps',
+  reportMatchedResult: 'report-matched-result',
+  reportSha256: 'report-sha256',
+  btnNextTest: 'btn-next-test',
+  btnViewInVault: 'btn-view-in-vault',
 
   // View 4: Evidence Vault
-  btnRefreshVault: document.getElementById('btn-refresh-vault'),
-  vaultRecordsBody: document.getElementById('vault-records-body'),
-  tamperVerificationBanner: document.getElementById('tamper-verification-banner'),
-  vaultCaseDetail: document.getElementById('vault-case-detail'),
-  vaultDetailCaseId: document.getElementById('vault-detail-case-id'),
-  btnCloseVaultDetail: document.getElementById('btn-close-vault-detail'),
-  vaultDetailFrame1: document.getElementById('vault-detail-frame1'),
-  vaultDetailFrame2: document.getElementById('vault-detail-frame2'),
-  vaultDetailDeltaE: document.getElementById('vault-detail-delta-e'),
-  vaultDetailGps: document.getElementById('vault-detail-gps'),
-  vaultDetailResult: document.getElementById('vault-detail-result')
+  btnRefreshVault: 'btn-refresh-vault',
+  vaultRecordsBody: 'vault-records-body',
+  tamperVerificationBanner: 'tamper-verification-banner',
+  vaultCaseDetail: 'vault-case-detail',
+  vaultDetailCaseId: 'vault-detail-case-id',
+  btnCloseVaultDetail: 'btn-close-vault-detail',
+  vaultDetailFrame1: 'vault-detail-frame1',
+  vaultDetailFrame2: 'vault-detail-frame2',
+  vaultDetailDeltaE: 'vault-detail-delta-e',
+  vaultDetailGps: 'vault-detail-gps',
+  vaultDetailResult: 'vault-detail-result'
 };
+
+// Dynamic Element Accessor via Proxy (Guarantees live DOM resolution with null-safety)
+const elements = new Proxy({}, {
+  get(_target, prop) {
+    if (typeof prop !== 'string') return undefined;
+    const id = ID_MAP[prop] || prop;
+    return (typeof document !== 'undefined') ? document.getElementById(id) : null;
+  }
+});
+
+/**
+ * Safe Event Listener Helper
+ * Ensures absent elements never crash script initialization
+ */
+function addSafeListener(el, event, handler) {
+  if (el && typeof el.addEventListener === 'function') {
+    el.addEventListener(event, handler);
+  }
+}
 
 /* =============================================================================
    View Switching & State Navigation
@@ -113,6 +140,7 @@ function switchView(targetViewId) {
   ];
 
   views.forEach(v => {
+    if (!v) return;
     if (v.id === targetViewId) {
       v.classList.remove('hidden');
       v.classList.add('active');
@@ -125,12 +153,12 @@ function switchView(targetViewId) {
   state.activeView = targetViewId;
 
   if (targetViewId === 'view-vault') {
-    elements.navBtnVault.classList.add('active');
-    elements.navBtnTest.classList.remove('active');
+    if (elements.navBtnVault) elements.navBtnVault.classList.add('active');
+    if (elements.navBtnTest) elements.navBtnTest.classList.remove('active');
     loadVaultRecords();
   } else {
-    elements.navBtnTest.classList.add('active');
-    elements.navBtnVault.classList.remove('active');
+    if (elements.navBtnTest) elements.navBtnTest.classList.add('active');
+    if (elements.navBtnVault) elements.navBtnVault.classList.remove('active');
   }
 }
 
@@ -138,8 +166,10 @@ function switchView(targetViewId) {
    View 1: Pre-Flight Hardware Permission Gate (Fail-Fast Pre-condition)
    ============================================================================= */
 async function requestHardwarePermissions() {
-  elements.permissionErrorAlert.classList.add('hidden');
-  elements.permissionErrorAlert.textContent = '';
+  if (elements.permissionErrorAlert) {
+    elements.permissionErrorAlert.classList.add('hidden');
+    elements.permissionErrorAlert.textContent = '';
+  }
 
   let cameraOk = false;
   let gpsOk = false;
@@ -164,13 +194,17 @@ async function requestHardwarePermissions() {
     testStream.getTracks().forEach(track => track.stop());
     cameraOk = true;
     state.cameraGranted = true;
-    elements.badgeCameraStatus.textContent = 'GRANTED';
-    elements.badgeCameraStatus.className = 'badge badge-granted';
+    if (elements.badgeCameraStatus) {
+      elements.badgeCameraStatus.textContent = 'GRANTED';
+      elements.badgeCameraStatus.className = 'badge badge-granted';
+    }
   } catch (err) {
     cameraOk = false;
     state.cameraGranted = false;
-    elements.badgeCameraStatus.textContent = 'DENIED';
-    elements.badgeCameraStatus.className = 'badge badge-denied';
+    if (elements.badgeCameraStatus) {
+      elements.badgeCameraStatus.textContent = 'DENIED';
+      elements.badgeCameraStatus.className = 'badge badge-denied';
+    }
     errors.push('Camera: ' + (err.message || 'Access denied by user or device'));
   }
 
@@ -194,45 +228,71 @@ async function requestHardwarePermissions() {
       lat: pos.coords.latitude,
       lng: pos.coords.longitude
     };
-    elements.badgeGpsStatus.textContent = 'ACQUIRED';
-    elements.badgeGpsStatus.className = 'badge badge-granted';
-    elements.labelGpsCoords.textContent = `${pos.coords.latitude.toFixed(6)}, ${pos.coords.longitude.toFixed(6)}`;
+    if (elements.badgeGpsStatus) {
+      elements.badgeGpsStatus.textContent = 'ACQUIRED';
+      elements.badgeGpsStatus.className = 'badge badge-granted';
+    }
+    if (elements.labelGpsCoords) {
+      elements.labelGpsCoords.textContent = `${pos.coords.latitude.toFixed(6)}, ${pos.coords.longitude.toFixed(6)}`;
+    }
   } catch (err) {
     gpsOk = false;
     state.gpsGranted = false;
-    elements.badgeGpsStatus.textContent = 'DENIED';
-    elements.badgeGpsStatus.className = 'badge badge-denied';
-    elements.labelGpsCoords.textContent = 'GPS fix unavailable';
+    if (elements.badgeGpsStatus) {
+      elements.badgeGpsStatus.textContent = 'DENIED';
+      elements.badgeGpsStatus.className = 'badge badge-denied';
+    }
+    if (elements.labelGpsCoords) {
+      elements.labelGpsCoords.textContent = 'GPS fix unavailable';
+    }
     errors.push('GPS: ' + (err.message || 'Position unavailable or denied'));
   }
 
   // Hard Gate: Perform Field Test button strictly enabled ONLY when both are active
   if (cameraOk && gpsOk) {
-    elements.btnStartTest.disabled = false;
-    elements.btnStartTest.focus();
+    if (elements.btnStartTest) {
+      elements.btnStartTest.disabled = false;
+      elements.btnStartTest.focus();
+    }
   } else {
-    elements.btnStartTest.disabled = true;
-    elements.permissionErrorAlert.textContent = `Authorization incomplete: ${errors.join(' | ')}`;
-    elements.permissionErrorAlert.classList.remove('hidden');
+    if (elements.btnStartTest) {
+      elements.btnStartTest.disabled = true;
+    }
+    if (elements.permissionErrorAlert) {
+      elements.permissionErrorAlert.textContent = `Authorization incomplete: ${errors.join(' | ')}`;
+      elements.permissionErrorAlert.classList.remove('hidden');
+    }
   }
 }
 
 /* =============================================================================
-   View 2: Automated 2-Frame Timed Capture Sequence (Zero Manual Triggering)
+   View 2: 3-Frame Guided Capture & Chemical Reaction Protocol
    ============================================================================= */
-async function startCaptureSequence() {
+
+/**
+ * View 2 — Step 1 (Alignment & Instructions)
+ * Opens live camera with 100x100 ROI reticle paused in Alignment Mode.
+ * Displays preparation instructions and "Capture Baseline Sample (Frame 1)" button.
+ */
+async function openCameraAndAlign() {
   if (!state.cameraGranted || !state.gpsGranted) {
     switchView('view-permissions');
     return;
   }
 
   switchView('view-capture');
-  elements.qualityGateError.classList.add('hidden');
+  if (elements.qualityGateError) elements.qualityGateError.classList.add('hidden');
   resetCaptureIndicators();
   state.isCapturing = true;
+  state.frame1 = null;
+  state.frame2 = null;
+  state.frame3 = null;
+
+  if (elements.captureStepPrep) elements.captureStepPrep.classList.remove('hidden');
+  if (elements.captureStepReagent) elements.captureStepReagent.classList.add('hidden');
+  if (elements.btnCaptureBaseline) elements.btnCaptureBaseline.disabled = false;
 
   try {
-    // Initialize live camera (prefer environment, fallback gracefully to laptop default)
     let stream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({
@@ -247,62 +307,116 @@ async function startCaptureSequence() {
     }
 
     state.mediaStream = stream;
-    elements.cameraFeed.srcObject = stream;
-    await elements.cameraFeed.play();
-
-    // 1. Sensor Stream Stabilization (500ms warm-up)
-    setCaptureStatus('Warming up optical sensor (500ms)...', true);
-    await delay(500);
-
-    // 2. Automated Baseline Capture (t = 0s)
-    setCaptureStatus('Sampling Baseline Frame (t=0s)...', true);
-    elements.stepBaseline.classList.add('active');
-    const frame1 = captureFrameAndCenterROI();
-
-    // Mathematical Quality Gate on Frame 1
-    const qg1 = evaluateQualityGate(frame1.roiImageData);
-    if (!qg1.valid) {
-      abortCapture(`Baseline Frame Failed Quality Gate: ${qg1.reason}`);
-      return;
+    if (elements.cameraFeed) {
+      elements.cameraFeed.srcObject = stream;
+      await elements.cameraFeed.play();
     }
 
-    elements.stepBaseline.classList.remove('active');
-    elements.stepBaseline.classList.add('complete');
-
-    // 3. Chemical Reaction Countdown (Uninterruptible REACTION_DELAY_MS = 5000)
-    elements.stepReaction.classList.add('active');
-    setCaptureStatus('Incubation Active — Align vial in reticle...', true);
-    await runCountdown(REACTION_DELAY_MS);
-    elements.stepReaction.classList.remove('active');
-    elements.stepReaction.classList.add('complete');
-
-    // 4. Automated Reacted Capture (t = deltaT, zero manual user tap)
-    setCaptureStatus('Sampling Reacted Frame (t=\u0394t)...', true);
-    elements.stepReacted.classList.add('active');
-    const frame2 = captureFrameAndCenterROI();
-
-    // Stop camera hardware tracks immediately
-    stopCamera();
-
-    // Mathematical Quality Gate on Frame 2
-    const qg2 = evaluateQualityGate(frame2.roiImageData);
-    if (!qg2.valid) {
-      abortCapture(`Reacted Frame Failed Quality Gate: ${qg2.reason}`);
-      return;
-    }
-
-    elements.stepReacted.classList.remove('active');
-    elements.stepReacted.classList.add('complete');
-    setCaptureStatus('', false);
-    state.isCapturing = false;
-
-    // Transition to Mathematical Processing & Lock-Before-Display
-    processAndLockEvidence(frame1, frame2);
-
+    setCaptureStatus('Alignment Mode — Place dry sample inside reticle.', true);
   } catch (err) {
     stopCamera();
     abortCapture('Camera initialization failed: ' + (err.message || 'Stream error'));
   }
+}
+
+// Alias for backwards compatibility
+const startCaptureSequence = openCameraAndAlign;
+
+/**
+ * View 2 — Step 2 (Reagent Prompt)
+ * Snaps Frame 1, runs evaluateQualityGate immediately, keeps live camera running,
+ * and displays prominent amber instruction box with "Reagent Added — Start 5s Reaction" button.
+ */
+async function onCaptureBaseline() {
+  if (elements.btnCaptureBaseline) elements.btnCaptureBaseline.disabled = true;
+  setCaptureStatus('Sampling Baseline Frame (Frame 1)...', true);
+
+  const frame1 = captureFrameAndCenterROI();
+  if (!frame1) {
+    if (elements.btnCaptureBaseline) elements.btnCaptureBaseline.disabled = false;
+    abortCapture('Failed to capture baseline image');
+    return;
+  }
+
+  const qg1 = evaluateQualityGate(frame1.roiImageData);
+
+  if (!qg1.valid) {
+    if (elements.btnCaptureBaseline) elements.btnCaptureBaseline.disabled = false;
+    abortCapture(`Baseline Sample: ${qg1.reason}`);
+    return;
+  }
+
+  state.frame1 = frame1;
+  if (elements.stepBaseline) elements.stepBaseline.classList.add('done');
+  if (elements.captureStepPrep) elements.captureStepPrep.classList.add('hidden');
+  if (elements.captureStepReagent) elements.captureStepReagent.classList.remove('hidden');
+  setCaptureStatus('Baseline locked. Add reagent to sample.', true);
+}
+
+/**
+ * View 2 — Step 3 (Automated Reaction & Redirect)
+ * Immediately snaps Frame 2 (t=0s), runs uninterruptible 5.00s countdown,
+ * snaps Frame 3 (t=5s), stops camera tracks, runs evaluateThreeFrameAnalysis,
+ * commits to POST /api/lock, and on 201 Created redirects to /report.html?id=<case_id>.
+ */
+async function onStartReaction() {
+  if (elements.btnStartReaction) elements.btnStartReaction.disabled = true;
+  if (elements.captureStepReagent) elements.captureStepReagent.classList.add('hidden');
+
+  // 1. Immediately snap Frame 2 (t = 0s)
+  setCaptureStatus('Sampling Reaction Baseline (Frame 2, t=0s)...', true);
+  if (elements.stepReaction) elements.stepReaction.classList.add('active');
+  const frame2 = captureFrameAndCenterROI();
+  state.frame2 = frame2;
+
+  // 2. Uninterruptible 5.00s countdown
+  setCaptureStatus('Reaction incubation active (5.00s)...', true);
+  await runCountdown(REACTION_DELAY_MS);
+
+  // 3. Snap Frame 3 (t = 5s)
+  setCaptureStatus('Sampling Reacted Frame (Frame 3, t=5s)...', true);
+  const frame3 = captureFrameAndCenterROI();
+  state.frame3 = frame3;
+
+  if (elements.stepReaction) {
+    elements.stepReaction.classList.remove('active');
+    elements.stepReaction.classList.add('done');
+  }
+  if (elements.stepReacted) {
+    elements.stepReacted.classList.add('done');
+  }
+
+  // Stop camera hardware tracks immediately
+  stopCamera();
+  setCaptureStatus('', false);
+  state.isCapturing = false;
+
+  // 4. Run evaluateThreeFrameAnalysis
+  const fnEval = (typeof evaluateThreeFrameAnalysis === 'function')
+    ? evaluateThreeFrameAnalysis
+    : (typeof window !== 'undefined' && window.ColorMath && typeof window.ColorMath.evaluateThreeFrameAnalysis === 'function')
+      ? window.ColorMath.evaluateThreeFrameAnalysis
+      : (typeof window !== 'undefined' && window.evaluateThreeFrameAnalysis)
+        || (typeof globalThis !== 'undefined' && globalThis.evaluateThreeFrameAnalysis);
+
+  if (typeof fnEval !== 'function') {
+    abortCapture('Internal evaluation module unavailable');
+    return;
+  }
+
+  const analysis = fnEval(
+    state.frame1.roiImageData,
+    frame2.roiImageData,
+    frame3.roiImageData
+  );
+
+  if (!analysis.valid) {
+    abortCapture(analysis.reason);
+    return;
+  }
+
+  // 5. Send POST /api/lock and redirect on 201 Created
+  await processAndLockEvidence(state.frame1, frame2, frame3, analysis);
 }
 
 /**
@@ -310,9 +424,10 @@ async function startCaptureSequence() {
  */
 function captureFrameAndCenterROI() {
   const canvas = elements.captureCanvas;
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
   const video = elements.cameraFeed;
+  if (!canvas || !video) return null;
 
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
   const videoW = video.videoWidth || 640;
   const videoH = video.videoHeight || 480;
 
@@ -339,11 +454,15 @@ function runCountdown(durationMs) {
     const interval = setInterval(() => {
       const elapsed = performance.now() - startTime;
       const remaining = Math.max(0, durationMs - elapsed);
-      elements.timerDisplay.textContent = (remaining / 1000).toFixed(2) + 's';
+      if (elements.timerDisplay) {
+        elements.timerDisplay.textContent = (remaining / 1000).toFixed(2) + 's';
+      }
 
       if (remaining <= 0) {
         clearInterval(interval);
-        elements.timerDisplay.textContent = '0.00s';
+        if (elements.timerDisplay) {
+          elements.timerDisplay.textContent = '0.00s';
+        }
         resolve();
       }
     }, 40);
@@ -351,19 +470,25 @@ function runCountdown(durationMs) {
 }
 
 function setCaptureStatus(text, visible) {
-  elements.captureStatusText.textContent = text;
-  if (visible) {
-    elements.captureStatusOverlay.classList.remove('hidden');
-  } else {
-    elements.captureStatusOverlay.classList.add('hidden');
+  if (elements.captureStatusText) {
+    elements.captureStatusText.textContent = text;
+  }
+  if (elements.captureStatusOverlay) {
+    if (visible) {
+      elements.captureStatusOverlay.classList.remove('hidden');
+    } else {
+      elements.captureStatusOverlay.classList.add('hidden');
+    }
   }
 }
 
 function resetCaptureIndicators() {
-  elements.stepBaseline.className = 'step-indicator';
-  elements.stepReaction.className = 'step-indicator';
-  elements.stepReacted.className = 'step-indicator';
-  elements.timerDisplay.textContent = (REACTION_DELAY_MS / 1000).toFixed(2) + 's';
+  if (elements.stepBaseline) elements.stepBaseline.className = 'step-indicator';
+  if (elements.stepReaction) elements.stepReaction.className = 'step-indicator';
+  if (elements.stepReacted) elements.stepReacted.className = 'step-indicator';
+  if (elements.timerDisplay) {
+    elements.timerDisplay.textContent = (REACTION_DELAY_MS / 1000).toFixed(2) + 's';
+  }
 }
 
 function stopCamera() {
@@ -371,43 +496,43 @@ function stopCamera() {
     state.mediaStream.getTracks().forEach(t => t.stop());
     state.mediaStream = null;
   }
-  elements.cameraFeed.srcObject = null;
+  if (elements.cameraFeed) {
+    elements.cameraFeed.srcObject = null;
+  }
   state.isCapturing = false;
 }
 
 function abortCapture(reason) {
   stopCamera();
-  elements.qualityGateErrorText.textContent = `INVALID CAPTURE: ${reason} — RETRY TEST`;
-  elements.qualityGateError.classList.remove('hidden');
+  if (elements.qualityGateErrorText) {
+    elements.qualityGateErrorText.textContent = `INVALID CAPTURE: ${reason} — RETRY TEST`;
+  }
+  if (elements.qualityGateError) {
+    elements.qualityGateError.classList.remove('hidden');
+  }
   setCaptureStatus('', false);
+  if (elements.captureStepPrep) elements.captureStepPrep.classList.add('hidden');
+  if (elements.captureStepReagent) elements.captureStepReagent.classList.add('hidden');
 }
 
 /* =============================================================================
    View 3: Local Mathematical Analysis & Lock-Before-Display Protocol
    ============================================================================= */
-async function processAndLockEvidence(frame1, frame2) {
+async function processAndLockEvidence(frame1, frame2, frame3, analysis) {
   switchView('view-analysis');
 
   // Lock-Before-Display: Show locking spinner, do NOT display result yet
-  elements.lockingSpinner.classList.remove('hidden');
-  elements.lockedReportContainer.classList.add('hidden');
+  if (elements.lockingSpinner) elements.lockingSpinner.classList.remove('hidden');
+  if (elements.lockedReportContainer) elements.lockedReportContainer.classList.add('hidden');
 
-  // 1. Synchronous Deterministic Colorimetric Transformation (README.md Section 7)
-  const rgb1 = computeAverageRGB(frame1.roiImageData);
-  const rgb2 = computeAverageRGB(frame2.roiImageData);
-
-  const lab1 = rgbToCielab(rgb1.r, rgb1.g, rgb1.b);
-  const lab2 = rgbToCielab(rgb2.r, rgb2.g, rgb2.b);
-
-  const classification = classifyReaction(lab1, lab2);
-
-  // 2. Lock-Before-Display: POST /api/lock
   try {
     const payload = {
       frame_1: frame1.base64Jpeg,
       frame_2: frame2.base64Jpeg,
-      delta_e: parseFloat(classification.deltaE_shift.toFixed(4)),
-      matched_result: classification.matchedResult,
+      frame_3: frame3.base64Jpeg,
+      delta_e_pre: parseFloat(analysis.delta_e_pre.toFixed(4)),
+      delta_e: parseFloat(analysis.delta_e.toFixed(4)),
+      matched_result: analysis.matched_result || analysis.matchedResult,
       gps_lat: parseFloat(state.gpsCoords.lat.toFixed(6)),
       gps_lng: parseFloat(state.gpsCoords.lng.toFixed(6))
     };
@@ -425,37 +550,43 @@ async function processAndLockEvidence(frame1, frame2) {
 
     const lockedRecord = await res.json();
 
-    // 3. Render Locked Read-Only Report ONLY after receiving HTTP 201 Created
-    renderLockedReport(lockedRecord);
+    // On 201 Created: Redirect to /report.html?id=<case_id>
+    window.location.href = `/report.html?id=${encodeURIComponent(lockedRecord.case_id)}`;
 
   } catch (err) {
-    elements.lockingSpinner.classList.add('hidden');
+    if (elements.lockingSpinner) elements.lockingSpinner.classList.add('hidden');
     alert('Cryptographic Lock Failed: ' + err.message + '\nEvidence was NOT committed to the permanent vault.');
     switchView('view-permissions');
   }
 }
 
 function renderLockedReport(record) {
-  elements.lockingSpinner.classList.add('hidden');
-  elements.lockedReportContainer.classList.remove('hidden');
+  if (elements.lockingSpinner) elements.lockingSpinner.classList.add('hidden');
+  if (elements.lockedReportContainer) elements.lockedReportContainer.classList.remove('hidden');
 
-  elements.reportCaseId.textContent = record.case_id;
-  elements.reportTimestamp.textContent = new Date(record.server_timestamp).toUTCString();
-  elements.imgBaseline.src = record.frame_1;
-  elements.imgReacted.src = record.frame_2;
-  elements.reportDeltaE.textContent = Number(record.delta_e).toFixed(4);
-  elements.reportGps.textContent = `${Number(record.gps_lat).toFixed(6)}, ${Number(record.gps_lng).toFixed(6)}`;
-  elements.reportMatchedResult.textContent = record.matched_result;
-  elements.reportSha256.textContent = record.sha256_hash;
+  if (elements.reportCaseId) elements.reportCaseId.textContent = record.case_id;
+  if (elements.reportTimestamp) elements.reportTimestamp.textContent = new Date(record.server_timestamp).toUTCString();
+  if (elements.imgBaseline) elements.imgBaseline.src = record.frame_1;
+  if (elements.imgReacted) elements.imgReacted.src = record.frame_2;
+  if (elements.reportDeltaE) elements.reportDeltaE.textContent = Number(record.delta_e).toFixed(4);
+  if (elements.reportGps) elements.reportGps.textContent = `${Number(record.gps_lat).toFixed(6)}, ${Number(record.gps_lng).toFixed(6)}`;
+  if (elements.reportMatchedResult) elements.reportMatchedResult.textContent = record.matched_result;
+  if (elements.reportSha256) elements.reportSha256.textContent = record.sha256_hash;
 }
 
 /* =============================================================================
    View 4: Read-Only Evidence Vault & Live Tamper Verifier (Stacked Mobile Cards)
    ============================================================================= */
 async function loadVaultRecords() {
-  elements.vaultRecordsBody.innerHTML = '<div class="vault-empty-state">Fetching locked evidence records...</div>';
-  elements.tamperVerificationBanner.classList.add('hidden');
-  elements.vaultCaseDetail.classList.add('hidden');
+  if (elements.vaultRecordsBody) {
+    elements.vaultRecordsBody.innerHTML = '<div class="vault-empty-state">Fetching locked evidence records...</div>';
+  }
+  if (elements.tamperVerificationBanner) {
+    elements.tamperVerificationBanner.classList.add('hidden');
+  }
+  if (elements.vaultCaseDetail) {
+    elements.vaultCaseDetail.classList.add('hidden');
+  }
 
   try {
     const res = await fetch('/api/evidence');
@@ -463,126 +594,145 @@ async function loadVaultRecords() {
     const records = await res.json();
 
     if (!records || records.length === 0) {
-      elements.vaultRecordsBody.innerHTML = '<div class="vault-empty-state">No evidence records committed to the vault yet.</div>';
+      if (elements.vaultRecordsBody) {
+        elements.vaultRecordsBody.innerHTML = '<div class="vault-empty-state">No evidence records committed to the vault yet.</div>';
+      }
       return;
     }
 
-    elements.vaultRecordsBody.innerHTML = '';
-    records.forEach(rec => {
-      const card = document.createElement('div');
-      card.className = 'evidence-vault-card';
+    if (elements.vaultRecordsBody) {
+      elements.vaultRecordsBody.innerHTML = '';
+      records.forEach(rec => {
+        const card = document.createElement('div');
+        card.className = 'evidence-vault-card';
 
-      let badgeClass = 'badge-pending';
-      if (rec.matched_result && rec.matched_result.includes('POSITIVE')) {
-        badgeClass = 'badge-success';
-      } else if (rec.matched_result && rec.matched_result.includes('NEGATIVE')) {
-        badgeClass = 'badge-pending';
-      } else if (rec.matched_result && rec.matched_result.includes('INCONCLUSIVE')) {
-        badgeClass = 'badge-danger';
-      }
+        let badgeClass = 'badge-pending';
+        if (rec.matched_result && rec.matched_result.includes('POSITIVE')) {
+          badgeClass = 'badge-success';
+        } else if (rec.matched_result && rec.matched_result.includes('NEGATIVE')) {
+          badgeClass = 'badge-pending';
+        } else if (rec.matched_result && rec.matched_result.includes('INCONCLUSIVE')) {
+          badgeClass = 'badge-danger';
+        }
 
-      card.innerHTML = `
-        <div class="vault-card-header">
-          <div class="case-id-group">
-            <span class="card-field-label">Case Identifier</span>
-            <span class="case-id-mono">${escapeHtml(rec.case_id)}</span>
+        card.innerHTML = `
+          <div class="vault-card-header">
+            <div class="case-id-group">
+              <span class="card-field-label">Case Identifier</span>
+              <span class="case-id-mono">${escapeHtml(rec.case_id)}</span>
+            </div>
+            <span class="badge ${badgeClass}">
+              ${escapeHtml(rec.matched_result)}
+            </span>
           </div>
-          <span class="badge ${badgeClass}">
-            ${escapeHtml(rec.matched_result)}
-          </span>
-        </div>
 
-        <div class="vault-card-telemetry">
-          <div class="telemetry-cell">
-            <span class="card-field-label">Timestamp (UTC)</span>
-            <span class="telemetry-value">${new Date(rec.server_timestamp).toUTCString()}</span>
+          <div class="vault-card-telemetry">
+            <div class="telemetry-cell">
+              <span class="card-field-label">Timestamp (UTC)</span>
+              <span class="telemetry-value">${new Date(rec.server_timestamp).toUTCString()}</span>
+            </div>
+            <div class="telemetry-cell">
+              <span class="card-field-label">Pre-Shift (&Delta;E&#8321;&#8594;&#8322;)</span>
+              <span class="telemetry-value highlight">${rec.delta_e_pre !== undefined ? Number(rec.delta_e_pre).toFixed(4) : '0.0000'}</span>
+            </div>
+            <div class="telemetry-cell">
+              <span class="card-field-label">Reaction Shift (&Delta;E&#8322;&#8594;&#8323;)</span>
+              <span class="telemetry-value highlight">${Number(rec.delta_e).toFixed(4)}</span>
+            </div>
+            <div class="telemetry-cell">
+              <span class="card-field-label">GPS Coordinate Fix</span>
+              <span class="telemetry-value">${Number(rec.gps_lat).toFixed(6)}, ${Number(rec.gps_lng).toFixed(6)}</span>
+            </div>
           </div>
-          <div class="telemetry-cell">
-            <span class="card-field-label">Perceptual Shift (&Delta;E)</span>
-            <span class="telemetry-value highlight">${Number(rec.delta_e).toFixed(4)}</span>
-          </div>
-          <div class="telemetry-cell full-width">
-            <span class="card-field-label">GPS Coordinate Fix</span>
-            <span class="telemetry-value">${Number(rec.gps_lat).toFixed(6)}, ${Number(rec.gps_lng).toFixed(6)}</span>
-          </div>
-        </div>
 
-        <button class="btn btn-secondary btn-sm btn-verify btn-full" data-case-id="${escapeHtml(rec.case_id)}" type="button">
-          <svg class="btn-svg" viewBox="0 0 20 20" fill="currentColor">
-            <path fill-rule="evenodd" d="M2.166 4.999A11.954 11.954 0 0010 1.944 11.954 11.954 0 0017.834 5c.11.65.166 1.32.166 2.001 0 5.225-3.34 9.67-8 11.317C5.34 16.67 2 12.225 2 7c0-.682.057-1.35.166-2.001zm11.541 3.708a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-          </svg>
-          <span>Verify Integrity &rarr;</span>
-        </button>
-      `;
-      elements.vaultRecordsBody.appendChild(card);
-    });
-
-    // Attach click listeners for integrity verification
-    document.querySelectorAll('.btn-verify').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        verifyRecordIntegrity(btn.dataset.caseId);
+          <div class="vault-card-actions">
+            <button class="btn btn-secondary btn-sm btn-verify" data-case-id="${escapeHtml(rec.case_id)}" type="button">
+              <svg class="btn-svg" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M2.166 4.999A11.954 11.954 0 0010 1.944 11.954 11.954 0 0017.834 5c.11.65.166 1.32.166 2.001 0 5.225-3.34 9.67-8 11.317C5.34 16.67 2 12.225 2 7c0-.682.057-1.35.166-2.001zm11.541 3.708a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+              </svg>
+              <span>Verify Integrity</span>
+            </button>
+            <a href="/report.html?id=${encodeURIComponent(rec.case_id)}" target="_blank" rel="noopener noreferrer" class="btn btn-primary btn-sm btn-view-report">
+              <span>View Official Report &nearr;</span>
+            </a>
+          </div>
+        `;
+        elements.vaultRecordsBody.appendChild(card);
       });
-    });
+
+      // Attach click listeners for integrity verification
+      elements.vaultRecordsBody.querySelectorAll('.btn-verify').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          verifyRecordIntegrity(btn.dataset.caseId);
+        });
+      });
+    }
 
   } catch (err) {
-    elements.vaultRecordsBody.innerHTML = `<div class="alert alert-danger">Failed to load vault records: ${err.message}</div>`;
+    if (elements.vaultRecordsBody) {
+      elements.vaultRecordsBody.innerHTML = `<div class="alert alert-danger">Failed to load vault records: ${err.message}</div>`;
+    }
   }
 }
 
 async function verifyRecordIntegrity(caseId) {
   try {
-    elements.tamperVerificationBanner.classList.add('hidden');
+    if (elements.tamperVerificationBanner) {
+      elements.tamperVerificationBanner.classList.add('hidden');
+    }
     const res = await fetch(`/api/evidence/${encodeURIComponent(caseId)}/verify`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const result = await res.json();
 
-    elements.tamperVerificationBanner.classList.remove('hidden', 'verified', 'tampered');
+    if (elements.tamperVerificationBanner) {
+      elements.tamperVerificationBanner.classList.remove('hidden', 'verified', 'tampered');
 
-    if (result.status === 'VERIFIED') {
-      elements.tamperVerificationBanner.classList.add('verified');
-      elements.tamperVerificationBanner.innerHTML = `
-        <strong>&#10004; INTEGRITY VERIFIED &bull; CASE: <code>${escapeHtml(caseId)}</code></strong>
-        <span style="font-size: 0.75rem; color: #047857; display: block; margin-top: 0.25rem; margin-bottom: 0.5rem;">
-          Server recomputed SHA-256 matches stored evidentiary seal byte-for-byte:
-        </span>
-        <div class="hash-box">
-          <span class="hash-box-label">Verified SHA-256 Digest</span>
-          <code style="color: var(--status-granted); font-weight: 700;">${escapeHtml(result.stored_hash)}</code>
-        </div>
-      `;
-    } else {
-      elements.tamperVerificationBanner.classList.add('tampered');
-      elements.tamperVerificationBanner.innerHTML = `
-        <strong>&#9888; TAMPERING DETECTED (ALERT) &bull; CASE: <code>${escapeHtml(caseId)}</code></strong>
-        <span style="font-size: 0.75rem; color: #B91C1C; display: block; margin-top: 0.25rem; margin-bottom: 0.5rem;">
-          Cryptographic signature divergence! SQLite storage row has been altered:
-        </span>
-        <div class="hash-comparison-grid">
+      if (result.status === 'VERIFIED') {
+        elements.tamperVerificationBanner.classList.add('verified');
+        elements.tamperVerificationBanner.innerHTML = `
+          <strong>&#10004; INTEGRITY VERIFIED &bull; CASE: <code>${escapeHtml(caseId)}</code></strong>
+          <span style="font-size: 0.75rem; color: #047857; display: block; margin-top: 0.25rem; margin-bottom: 0.5rem;">
+            Server recomputed SHA-256 matches stored evidentiary seal byte-for-byte:
+          </span>
           <div class="hash-box">
-            <span class="hash-box-label">Stored Hash in Vault</span>
-            <code style="color: var(--status-pending); font-weight: 700;">${escapeHtml(result.stored_hash)}</code>
+            <span class="hash-box-label">Verified SHA-256 Digest</span>
+            <code style="color: var(--status-granted); font-weight: 700;">${escapeHtml(result.stored_hash)}</code>
           </div>
-          <div class="hash-box">
-            <span class="hash-box-label">Recomputed Canonical Hash</span>
-            <code style="color: var(--status-denied); font-weight: 700;">${escapeHtml(result.computed_hash)}</code>
+        `;
+      } else {
+        elements.tamperVerificationBanner.classList.add('tampered');
+        elements.tamperVerificationBanner.innerHTML = `
+          <strong>&#9888; TAMPERING DETECTED (ALERT) &bull; CASE: <code>${escapeHtml(caseId)}</code></strong>
+          <span style="font-size: 0.75rem; color: #B91C1C; display: block; margin-top: 0.25rem; margin-bottom: 0.5rem;">
+            Cryptographic signature divergence! SQLite storage row has been altered:
+          </span>
+          <div class="hash-comparison-grid">
+            <div class="hash-box">
+              <span class="hash-box-label">Stored Hash in Vault</span>
+              <code style="color: var(--status-pending); font-weight: 700;">${escapeHtml(result.stored_hash)}</code>
+            </div>
+            <div class="hash-box">
+              <span class="hash-box-label">Recomputed Canonical Hash</span>
+              <code style="color: var(--status-denied); font-weight: 700;">${escapeHtml(result.computed_hash)}</code>
+            </div>
           </div>
-        </div>
-      `;
+        `;
+      }
+
+      elements.tamperVerificationBanner.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
 
     // Populate Inspection Detail Panel if full record was returned
     if (result.record) {
-      elements.vaultDetailCaseId.textContent = result.record.case_id;
-      elements.vaultDetailFrame1.src = result.record.frame_1;
-      elements.vaultDetailFrame2.src = result.record.frame_2;
-      elements.vaultDetailDeltaE.textContent = Number(result.record.delta_e).toFixed(4);
-      elements.vaultDetailGps.textContent = `${Number(result.record.gps_lat).toFixed(6)}, ${Number(result.record.gps_lng).toFixed(6)}`;
-      elements.vaultDetailResult.textContent = result.record.matched_result;
-      elements.vaultCaseDetail.classList.remove('hidden');
+      if (elements.vaultDetailCaseId) elements.vaultDetailCaseId.textContent = result.record.case_id;
+      if (elements.vaultDetailFrame1) elements.vaultDetailFrame1.src = result.record.frame_1;
+      if (elements.vaultDetailFrame2) elements.vaultDetailFrame2.src = result.record.frame_2;
+      if (elements.vaultDetailDeltaE) elements.vaultDetailDeltaE.textContent = Number(result.record.delta_e).toFixed(4);
+      if (elements.vaultDetailGps) elements.vaultDetailGps.textContent = `${Number(result.record.gps_lat).toFixed(6)}, ${Number(result.record.gps_lng).toFixed(6)}`;
+      if (elements.vaultDetailResult) elements.vaultDetailResult.textContent = result.record.matched_result;
+      if (elements.vaultCaseDetail) elements.vaultCaseDetail.classList.remove('hidden');
     }
-
-    elements.tamperVerificationBanner.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
   } catch (err) {
     alert('Integrity verification request failed: ' + err.message);
@@ -606,35 +756,64 @@ function escapeHtml(str) {
     .replace(/'/g, '&#039;');
 }
 
-// Navigation Events
-elements.navBtnTest.addEventListener('click', () => switchView('view-permissions'));
-elements.navBtnVault.addEventListener('click', () => switchView('view-vault'));
+let isInitialized = false;
+function initEventListeners() {
+  if (isInitialized) return;
+  isInitialized = true;
 
-// View 1 Events
-elements.btnRequestPerms.addEventListener('click', requestHardwarePermissions);
-elements.btnStartTest.addEventListener('click', startCaptureSequence);
+  // Navigation Events
+  addSafeListener(elements.navBtnTest, 'click', () => switchView('view-permissions'));
+  addSafeListener(elements.navBtnVault, 'click', () => switchView('view-vault'));
 
-// View 2 Events
-elements.btnRetryCapture.addEventListener('click', () => {
-  elements.qualityGateError.classList.add('hidden');
-  startCaptureSequence();
-});
+  // View 1 Events
+  addSafeListener(elements.btnRequestPerms, 'click', requestHardwarePermissions);
+  addSafeListener(elements.btnStartTest, 'click', openCameraAndAlign);
 
-// View 3 Events
-elements.btnNextTest.addEventListener('click', () => {
-  switchView('view-permissions');
-});
-elements.btnViewInVault.addEventListener('click', () => {
-  switchView('view-vault');
-});
+  // View 2 Events
+  addSafeListener(elements.btnCaptureBaseline, 'click', onCaptureBaseline);
+  addSafeListener(elements.btnStartReaction, 'click', onStartReaction);
+  addSafeListener(elements.btnRetryCapture, 'click', () => {
+    if (elements.qualityGateError) elements.qualityGateError.classList.add('hidden');
+    openCameraAndAlign();
+  });
 
-// View 4 Events
-elements.btnRefreshVault.addEventListener('click', loadVaultRecords);
-elements.btnCloseVaultDetail.addEventListener('click', () => {
-  elements.vaultCaseDetail.classList.add('hidden');
-});
+  // View 3 Events
+  addSafeListener(elements.btnNextTest, 'click', () => {
+    switchView('view-permissions');
+  });
+  addSafeListener(elements.btnViewInVault, 'click', () => {
+    switchView('view-vault');
+  });
 
-// Page Initialization
-window.addEventListener('DOMContentLoaded', () => {
-  elements.btnStartTest.disabled = true;
-});
+  // View 4 Events
+  addSafeListener(elements.btnRefreshVault, 'click', loadVaultRecords);
+  addSafeListener(elements.btnCloseVaultDetail, 'click', () => {
+    if (elements.vaultCaseDetail) elements.vaultCaseDetail.classList.add('hidden');
+  });
+
+  if (elements.btnStartTest) {
+    elements.btnStartTest.disabled = true;
+  }
+}
+
+// Attach listeners immediately or wait for DOMContentLoaded if parsing
+if (typeof document !== 'undefined') {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initEventListeners);
+  } else {
+    initEventListeners();
+  }
+}
+
+// Export state and handlers for debugging/inspection
+export {
+  state,
+  switchView,
+  requestHardwarePermissions,
+  openCameraAndAlign,
+  onCaptureBaseline,
+  onStartReaction,
+  processAndLockEvidence,
+  loadVaultRecords,
+  verifyRecordIntegrity
+};

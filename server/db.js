@@ -6,6 +6,8 @@
  *  - case_id TEXT PRIMARY KEY
  *  - frame_1 TEXT NOT NULL
  *  - frame_2 TEXT NOT NULL
+ *  - frame_3 TEXT NOT NULL
+ *  - delta_e_pre REAL NOT NULL
  *  - delta_e REAL NOT NULL
  *  - matched_result TEXT NOT NULL
  *  - gps_lat REAL NOT NULL
@@ -82,6 +84,8 @@ function createSchema() {
       case_id TEXT PRIMARY KEY,
       frame_1 TEXT NOT NULL,
       frame_2 TEXT NOT NULL,
+      frame_3 TEXT NOT NULL,
+      delta_e_pre REAL NOT NULL,
       delta_e REAL NOT NULL,
       matched_result TEXT NOT NULL,
       gps_lat REAL NOT NULL,
@@ -93,6 +97,21 @@ function createSchema() {
 
   if (dbDriver === 'better-sqlite3' || dbDriver === 'node-sqlite') {
     db.exec(schemaSql);
+    // Auto-migrate if table existed from an earlier schema version
+    try {
+      const tableInfo = db.prepare("PRAGMA table_info(evidence_records)").all();
+      if (tableInfo && tableInfo.length > 0) {
+        const colNames = tableInfo.map(c => c.name);
+        if (!colNames.includes('frame_3')) {
+          db.exec("ALTER TABLE evidence_records ADD COLUMN frame_3 TEXT NOT NULL DEFAULT ''");
+        }
+        if (!colNames.includes('delta_e_pre')) {
+          db.exec("ALTER TABLE evidence_records ADD COLUMN delta_e_pre REAL NOT NULL DEFAULT 0.0");
+        }
+      }
+    } catch (migErr) {
+      // Ignore migration errors if any
+    }
   } else if (dbDriver === 'sqlite3') {
     db.run(schemaSql, (err) => {
       if (err) console.error('[DB] Schema initialization failed:', err);
@@ -113,15 +132,17 @@ function insertEvidenceRecord(record) {
   return new Promise((resolve, reject) => {
     const sql = `
       INSERT INTO evidence_records (
-        case_id, frame_1, frame_2, delta_e, matched_result,
+        case_id, frame_1, frame_2, frame_3, delta_e_pre, delta_e, matched_result,
         gps_lat, gps_lng, server_timestamp, sha256_hash
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     const params = [
       String(record.case_id),
       String(record.frame_1),
       String(record.frame_2),
+      String(record.frame_3),
+      Number(record.delta_e_pre),
       Number(record.delta_e),
       String(record.matched_result),
       Number(record.gps_lat),
@@ -149,7 +170,7 @@ function insertEvidenceRecord(record) {
 
 /**
  * Retrieves all evidence records ordered by server_timestamp DESC.
- * Omits heavy Base64 frames (frame_1, frame_2) for fast summary display.
+ * Omits heavy Base64 frames (frame_1, frame_2, frame_3) for fast summary display.
  *
  * @returns {Promise<Array<Object>>} List of evidence summaries
  */
@@ -158,7 +179,7 @@ function getAllEvidenceRecords() {
 
   return new Promise((resolve, reject) => {
     const sql = `
-      SELECT case_id, delta_e, matched_result, gps_lat, gps_lng, server_timestamp, sha256_hash
+      SELECT case_id, delta_e_pre, delta_e, matched_result, gps_lat, gps_lng, server_timestamp, sha256_hash
       FROM evidence_records
       ORDER BY server_timestamp DESC
     `;

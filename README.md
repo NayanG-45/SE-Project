@@ -22,6 +22,7 @@ This `README.md` is a **living specification**. Before making changes, distingui
 - `2026-11-24`: Mobile-first frontend implementation complete (Views 1–4, responsive CSS, hardware permission gate, 2-frame automated capture state machine, Lock-Before-Display presentation, Evidence Vault inspection & tamper verifier). Verified on mobile viewport (390×844) via Chrome DevTools with 0 console/network errors.
 - `2026-11-24`: Clinical forensic redesign executed via Stitch MCP (Forensic Precision Laboratory Console) and documented in DESIGN.md. Applied crisp 1px borders, 0px sharp geometry, Public Sans / JetBrains Mono typography, inline SVGs, stacked mobile action buttons, and zero horizontal overflow stacked vault cards. Verified via Chrome DevTools MCP at 390×844.
 - `2026-11-24`: Complete redesign and rebuild of `public/index.html` and `public/style.css` into a modern, responsive light clinical forensic UI (#F8FAFC page background, crisp white cards, soft #E2E8F0 borders, 12px radius, Inter typography, #2563EB clinical blue accent). Removed dark terminal/brutalist styling and robotic jargon in favor of natural forensic labels (Hardware Check, Live Capture, Locked Evidence Report, Evidence Vault). Preserved 100% of DOM IDs and event hooks in `public/app.js`. Verified via Chrome DevTools MCP across both Desktop (1280×800) and Mobile (390×844) with 0 console errors, 0 network errors, zero horizontal overflow, and fully responsive grid/stack transitions.
+- `2026-11-24`: Implemented 3-Frame Anti-Framing Kinetic Verification Protocol (Frame 1 pre-reagent baseline, Frame 2 post-reagent t=0s, Frame 3 reacted t=5s) and standalone print-ready A4 PDF report (/report.html and /report.js) with deterministic clinical narrative generation, 10-parameter canonical SHA-256 hash lock, and live integrity verification.
 
 # NarcoTest Vision (NTV) — Complete Technical Specification & Architecture Blueprint
 
@@ -66,15 +67,16 @@ Any AI agent or developer working on this repository **MUST** obey the following
 ```text
 [Mobile/Desktop Browser Client]
  ├── View 1: Pre-Flight Permission Gate (Camera + Geolocation Pre-conditions)
- ├── View 2: Automated 2-Frame Live Capture (getUserMedia + Fixed Timer + ROI Reticle)
- ├── View 3: Local CV Engine (Luminance/Variance Gate -> RGB->XYZ->CIELAB -> ΔE Match)
- │            └── Lock-Before-Display: POST /api/lock (Commits BEFORE rendering result)
- └── View 4: Read-Only Evidence Vault & Live Tamper Verifier (GET /api/evidence & /:id/verify)
+ ├── View 2: Guided 3-Frame Live Capture (Alignment Mode -> Dry Baseline Frame 1 -> Reagent Added -> 5s Incubation -> Frame 2 & Frame 3)
+ ├── View 3: Local CV & Anti-Framing Engine (Quality Gate -> 3-Frame Kinetic Analysis -> Reagent Match)
+ │            └── Lock-Before-Display: POST /api/lock -> Redirects to /report.html?id=<case_id>
+ ├── View 4: Read-Only Evidence Vault (Reverse chronological summary + View Official Report ↗ link)
+ └── Standalone Report: /report.html (Print-ready A4 PDF report with deterministic clinical narrative & tamper seal)
         │
         ▼  (JSON over HTTP)
 [Node.js + Express Backend]
  ├── Authoritative UTC Timestamp Generator (Server-side; ignores client clock)
- ├── Canonical Serialization & SHA-256 Cryptographic Engine (Node native `crypto`)
+ ├── Canonical Serialization & SHA-256 Cryptographic Engine (10-parameter payload)
  └── Append-Only SQLite Persistence Layer (`evidence_records` table)
 ```
 
@@ -97,7 +99,9 @@ NarcoTest-Vision/
 │   ├── index.html                  # Single-Page Application (4 state-managed views)
 │   ├── style.css                   # Clean, high-contrast mobile-first UI styling
 │   ├── app.js                      # State machine, permissions, camera/GPS, timer, API calls
-│   └── colorMath.js                # Pure math module: Quality Gate, sRGB->CIELAB, ΔE, Reagent Matcher
+│   ├── colorMath.js                # Pure math module: Quality Gate, sRGB->CIELAB, ΔE, Reagent Matcher, 3-Frame Analysis
+│   ├── report.html                 # Standalone print-ready A4 PDF forensic report document
+│   └── report.js                   # Report population, verification fetch, deterministic narrative generator
 ├── server/
 │   ├── server.js                   # Express app, static serving, strict append-only API, SHA-256 logic
 │   └── db.js                       # SQLite connection, schema initialization, read/insert queries only
@@ -120,37 +124,25 @@ The frontend is a Single-Page Application (SPA) with a top navigation bar switch
   * `GPS Location: ACQUIRED (lat, lng) / PENDING / DENIED`
 * **Hard Gate:** The `Perform Test` button MUST remain `disabled` until **both** Camera and GPS are actively verified. Once granted, the browser persists permission so the user is not re-prompted on subsequent tests.
 
-### View 2: Automated 2-Frame Timed Capture (Zero Manual Triggering)
-* Clicking `Perform Test` initializes the live rear camera feed (`facingMode: "environment"` with fallback to default webcam on laptops) inside a `<video>` element.
-* Render a centered visual **Region of Interest (ROI) Reticle** (e.g., a centered 100×100 px square guide box) so the operator aligns the chemical test vial/strip inside the exact sampling zone.
-* **Automated Sequence (Uninterruptible):**
-  1. **$t = 0\text{s}$ (Baseline Capture):** Immediately upon stream stabilization (e.g., 500ms warm-up), automatically draw the video frame to an offscreen `<canvas>` and extract **Frame 1** (Base64 JPEG, quality `0.8`, resized to max width `480px` to keep payload/DB lightweight) + raw ROI pixel data.
-  2. **Reaction Countdown:** Start an uninterruptible on-screen countdown timer governed by a single configurable constant:
-     ```javascript
-     const REACTION_DELAY_MS = 5000; // Set to 5000ms (5s) for live testing/demo; configurable to 30000-60000ms for field reagents.
-     ```
-  3. **$t = \Delta t$ (Reacted Capture):** The exact millisecond the timer reaches `0`, automatically capture **Frame 2** (Base64 JPEG + raw ROI pixel data) with zero manual user tap. Immediately stop camera tracks.
+### View 2: Guided 3-Frame Anti-Framing Capture Sequence
+* Clicking `Perform Field Test` initializes the live rear camera feed (`facingMode: "environment"` with fallback to default webcam on laptops) inside a `<video>` element with a centered visual 100×100 px Region of Interest (ROI) Reticle paused in **Alignment Mode**.
+* **Step 1 (Alignment & Preparation):** Displays preparation instructions (dry sample placement, capture baseline, add reagent only when prompted) and a `Capture Baseline Sample (Frame 1)` button.
+* **Step 2 (Reagent Prompt):** Clicking `Capture Baseline Sample (Frame 1)` snaps **Frame 1** ($t_{\text{pre}}$ unreacted dry sample), executes `evaluateQualityGate` immediately (aborting if invalid), keeps camera tracks active, and displays an amber instruction box with `Reagent Added — Start 5s Reaction`.
+* **Step 3 (Automated Reaction & Redirect):** Clicking `Reagent Added — Start 5s Reaction` immediately snaps **Frame 2** ($t = 0\text{s}$ post-reagent), runs an uninterruptible 5.00s countdown, snaps **Frame 3** ($t = 5\text{s}$ reacted), stops all camera hardware tracks, and executes `evaluateThreeFrameAnalysis(roi1, roi2, roi3)` (aborting on Quality Gate failure).
+* **Step 4 (Lock-Before-Display & Report Redirection):** Commits evidence via `POST /api/lock` containing `{ frame_1, frame_2, frame_3, delta_e_pre, delta_e, matched_result, gps_lat, gps_lng }`. On `HTTP 201 Created`, immediately redirects to the standalone report `/report.html?id=<case_id>`.
 
 ### View 3: Local Mathematical Analysis & Lock-Before-Display
-Immediately after Frame 2 is captured, execute `colorMath.js` synchronously:
-1. **Quality Gate (Invalid Frame Rejection):** Run Luminance and Standard Deviation checks on both Frame 1 and Frame 2 ROIs. If either frame fails (covered lens, pitch black, blown-out white, or completely uniform blank surface), **ABORT immediately**, do NOT send to the backend, and display `INVALID CAPTURE: [Exact Reason] — RETRY TEST`.
-2. **Color Shift & Reagent Matching:** Compute average RGB of the center ROI for Frame 1 and Frame 2, convert both to **CIE $L^*a^*b^*$**, compute $\Delta E_{\text{shift}}$ between Frame 1 and Frame 2, and match Frame 2 against the deterministic Reagent Reference Table.
-3. **Lock-Before-Display Protocol:**
-   * **CRITICAL:** Do NOT render the test result to the UI before server commitment.
-   * Display a `"Cryptographically Locking Evidence..."` state while sending `POST /api/lock` containing `{ frame_1, frame_2, delta_e, matched_result, gps_lat, gps_lng }`.
-   * Only after receiving `HTTP 201 Created` with the server-generated `case_id`, `server_timestamp`, and `sha256_hash`, transition to the **Locked Read-Only Report View** displaying:
-     * Case ID & Lock Badge (`LOCKED — READ-ONLY`)
-     * Side-by-side Baseline ($t=0\text{s}$) and Reacted ($t=\Delta t$) images
-     * Computed $\Delta E$ color shift & Deterministic Reagent Match
-     * Verified GPS Coordinates & Authoritative Server UTC Timestamp
-     * Full 64-character `SHA-256` Cryptographic Seal
+Immediately upon completion of the reaction countdown, the client colorimetry engine executes:
+1. **Quality Gate Check:** Evaluates luminance and variance on all three frame ROIs, aborting if any frame fails.
+2. **Kinetic & Anti-Framing Analysis:** Computes $\Delta E_{1\to 2}$ ($\Delta E_{\text{pre}}$) and $\Delta E_{2\to 3}$ ($\Delta E$) to identify contaminated baselines or artificial sample substitution before matching against calibrated reagent centroids.
+3. **Cryptographic Locking:** Displays `"Cryptographically Locking Evidence..."` while sending `POST /api/lock`. On `201 Created`, navigates directly to `/report.html?id=<case_id>` for the official court-admissible report sheet.
 
 ### View 4: Read-Only Evidence Vault & Live Tamper Verifier
-* Fetches all committed records via `GET /api/evidence` and displays them in reverse chronological order (Case ID, Timestamp, Matched Result, GPS).
-* Clicking any record (or its **"Verify Integrity"** button) calls `GET /api/evidence/:id/verify`.
-* Displays the full read-only forensic record alongside a live cryptographic verification banner:
-  * **`INTEGRITY VERIFIED (GREEN)`**: Re-computed hash matches stored `sha256_hash` byte-for-byte.
-  * **`TAMPERING DETECTED (RED ALERT)`**: Re-computed hash diverges from stored `sha256_hash`. Displays both the **Stored Hash** and the **Re-computed Hash** side-by-side to visually prove corruption.
+* Fetches all committed records via `GET /api/evidence` and displays them in reverse chronological order.
+* Each card displays Case ID, UTC timestamp, Pre-Reagent Shift ($\Delta E_{1\to 2}$), Reaction Shift ($\Delta E_{2\to 3}$), GPS Coordinates, and Matched Result.
+* Dual actions per card:
+  * **"Verify Integrity"**: Executes `GET /api/evidence/:id/verify` to display green `VERIFIED` or red `TAMPERED` status with side-by-side hash comparison.
+  * **"View Official Report ↗"**: Opens the standalone print-ready `/report.html?id=<case_id>` in a new tab (`target="_blank"`).
 
 ---
 
@@ -203,10 +195,17 @@ $$\Delta E_{\text{shift}} = \sqrt{(L_2 - L_1)^2 + (a_2 - a_1)^2 + (b_2 - b_1)^2}
 
 *(Note: Centroids are calibrated to work reliably with physical colored reference cards or food coloring in water during classroom verification.)*
 
+### 7.5 Three-Frame Kinetic Verification & Anti-Framing Protocol (`evaluateThreeFrameAnalysis`)
+To prevent framing, contaminated vials, or deliberate mid-test fluid substitutions, the mathematical engine enforces a deterministic 3-frame evaluation:
+1. **Quality Gate Verification:** Evaluates luminance ($\mu_Y \in [25, 248]$) and variance ($\sigma_Y \ge 1.5$) across Frame 1, Frame 2, and Frame 3.
+2. **Pre-Contaminated Baseline Detection:** If Frame 1 (unreacted dry sample) falls within $\Delta E \le 35.0$ of any calibrated reagent centroid prior to reagent introduction, classify as **`SUSPECTED FRAMING — PRE-CONTAMINATED BASELINE`**.
+3. **Instant Swap / Kinetic Discontinuity Detection:** If an instantaneous color displacement occurs upon reagent contact ($\Delta E_{1\to 2} > 35.0$) followed by a flat kinetic profile across the 5.00s reaction window ($\Delta E_{2\to 3} < 10.0$), classify as **`SUSPECTED FRAMING — INSTANT SWAP / NO REACTION CURVE`**.
+4. **Reaction Evaluation:** If $\Delta E_{2\to 3} < 12.0$, classify as **`NEGATIVE — NO SIGNIFICANT REACTION`**; otherwise match Frame 3 against reference centroids within threshold $\Delta E \le 45.0$ (or **`INCONCLUSIVE — UNRECOGNIZED COLOR SHIFT`**).
+
 ---
 
 ## 8. Cryptographic Integrity & Canonical Hashing Protocol
-To guarantee deterministic verification without floating-point formatting drift or JSON key-order mismatches, the backend **MUST** compute SHA-256 over a strict, pipe-delimited **Canonical Payload String**:
+To guarantee deterministic verification without floating-point formatting drift or JSON key-order mismatches, the backend **MUST** compute SHA-256 over a strict, pipe-delimited 10-parameter **Canonical Payload String**:
 
 ```javascript
 function computeEvidenceHash(record) {
@@ -214,6 +213,8 @@ function computeEvidenceHash(record) {
     String(record.case_id),
     String(record.frame_1),
     String(record.frame_2),
+    String(record.frame_3),
+    Number(record.delta_e_pre).toFixed(4),
     Number(record.delta_e).toFixed(4),
     String(record.matched_result),
     Number(record.gps_lat).toFixed(6),
@@ -226,7 +227,7 @@ function computeEvidenceHash(record) {
 ```
 
 * **Server Authority:** `case_id` (format: `NTV-YYYYMMDD-XXXXXX` using random hex/alphanumeric) and `server_timestamp` (`new Date().toISOString()`) MUST be generated strictly on the server inside `POST /api/lock`. Never trust client-supplied timestamps.
-* **Verification Rule:** `GET /api/evidence/:id/verify` reads the stored row from SQLite, passes it to `computeEvidenceHash(row)`, and performs a constant-time or strict equality comparison against `row.sha256_hash`.
+* **Verification Rule:** `GET /api/evidence/:id/verify` reads the stored row from SQLite, passes it to `computeEvidenceHash(row)`, and performs a constant-time comparison against `row.sha256_hash`.
 
 ---
 
@@ -238,6 +239,8 @@ CREATE TABLE IF NOT EXISTS evidence_records (
   case_id TEXT PRIMARY KEY,
   frame_1 TEXT NOT NULL,
   frame_2 TEXT NOT NULL,
+  frame_3 TEXT NOT NULL,
+  delta_e_pre REAL NOT NULL,
   delta_e REAL NOT NULL,
   matched_result TEXT NOT NULL,
   gps_lat REAL NOT NULL,
@@ -248,14 +251,14 @@ CREATE TABLE IF NOT EXISTS evidence_records (
 ```
 
 ### Strict Append-Only Endpoints (`server/server.js`)
-Configure `express.json({ limit: '10mb' })` to accommodate the two Base64 frame strings.
+Configure `express.json({ limit: '10mb' })` to accommodate the Base64 frame strings.
 
 1. **`POST /api/lock`**
-   * **Request Body:** `{ frame_1, frame_2, delta_e, matched_result, gps_lat, gps_lng }`
+   * **Request Body:** `{ frame_1, frame_2, frame_3, delta_e_pre, delta_e, matched_result, gps_lat, gps_lng }`
    * **Validation:** Reject with `400 Bad Request` if any required field is missing, non-finite (for numbers), or empty.
    * **Action:** Generate `case_id` and `server_timestamp`, compute `sha256_hash`, execute `INSERT INTO evidence_records (...)`, return `201 Created` with the complete locked record.
 2. **`GET /api/evidence`**
-   * **Action:** Return `200 OK` with an array of all records ordered by `server_timestamp DESC` (omit `frame_1` and `frame_2` in the list summary if desired for speed, or include them; keep payload clean).
+   * **Action:** Return `200 OK` with an array of all records ordered by `server_timestamp DESC` (omit heavy frame strings in list summary for fast loading).
 3. **`GET /api/evidence/:id/verify`**
    * **Action:** Fetch the full row by `case_id`. If not found, return `404 Not Found`. Re-compute `computed_hash = computeEvidenceHash(row)`. Return `200 OK`:
      ```json
@@ -276,7 +279,7 @@ This matrix maps architectural decisions directly to SE syllabus principles for 
 | Design Choice | Alternative Rejected | Technical & SE Justification |
 | :--- | :--- | :--- |
 | **CIELAB ($\Delta E_{76}$)** | RGB / HSV Euclidean Distance | RGB is hardware- and lighting-dependent; CIELAB is perceptually uniform, meaning mathematical distance directly correlates to human visual difference. |
-| **2-Frame Timed Capture** | Full Video Processing / Single Photo | Single photos miss reaction curves and allow oxidation bias; full video incurs ~100x storage/bandwidth overhead. Two timed frames prove a real color transition ($\Delta E_{\text{shift}}$) with minimal payload size. |
+| **3-Frame Kinetic Capture** | Full Video Processing / Single Photo | Single photos miss reaction curves and allow oxidation bias; full video incurs ~100x storage/bandwidth overhead. Three timed frames prove genuine chemical kinetics ($\Delta E_{2\to 3}$) while detecting pre-contamination ($\Delta E \le 35$) and liquid swaps ($\Delta E_{1\to 2} > 35, \Delta E_{2\to 3} < 10$). |
 | **Deterministic Math** | Deep Learning (CNN) / LLM Vision | Zero training dataset required (impossible to legally source thousands of drug samples), zero hallucination risk, 100% mathematically auditable in court. |
 | **SHA-256 + Append-Only SQLite** | Blockchain / Standard Editable DB | $O(1)$ cryptographic tamper detection with zero gas fees, network latency, or distributed-node complexity. |
 | **Mobile-First Web App** | Native Android/iOS Apps | Eliminates OS fragmentation across police hardware and guarantees instant deployment via standard browser Camera/GPS APIs. |

@@ -259,3 +259,181 @@ export function classifyReaction(baselineLab, reactedLab) {
     centroidDeltaE: minDistance
   };
 }
+
+/**
+ * 7.5 Three-Frame Kinetic Verification & Anti-Framing Analysis
+ * Evaluates a 3-frame capture sequence (t=0s baseline, t=mid intermediate, t=final reacted).
+ *
+ * Checks:
+ * 1. Quality Gate on all 3 frames (roi1, roi2, roi3).
+ * 2. Pre-contamination check: Frame 1 within Delta E <= 35 of any reagent centroid.
+ *    -> 'SUSPECTED FRAMING — PRE-CONTAMINATED BASELINE'
+ * 3. Kinetic swap check: Delta E(1->2) > 35 AND Delta E(2->3) < 10.
+ *    -> 'SUSPECTED FRAMING — INSTANT SWAP / NO REACTION CURVE'
+ * 4. Reaction curve check:
+ *    - If Delta E(2->3) < 12: 'NEGATIVE — NO SIGNIFICANT REACTION'
+ *    - Else: match Frame 3 against calibrated reagent centroids.
+ *
+ * @param {ImageData} roi1 - Baseline frame ROI
+ * @param {ImageData} roi2 - Intermediate frame ROI
+ * @param {ImageData} roi3 - Final reacted frame ROI
+ * @returns {{ valid: boolean, reason?: string, delta_e_pre?: number, delta_e?: number, matched_result?: string, matchedResult?: string, nearestCentroid?: string, centroidDeltaE?: number, lab1?: Object, lab2?: Object, lab3?: Object }}
+ */
+export function evaluateThreeFrameAnalysis(roi1, roi2, roi3) {
+  // 1. Run Quality Gate on all 3 frames
+  const qg1 = evaluateQualityGate(roi1);
+  if (!qg1.valid) {
+    return { valid: false, reason: `Frame 1: ${qg1.reason}` };
+  }
+  const qg2 = evaluateQualityGate(roi2);
+  if (!qg2.valid) {
+    return { valid: false, reason: `Frame 2: ${qg2.reason}` };
+  }
+  const qg3 = evaluateQualityGate(roi3);
+  if (!qg3.valid) {
+    return { valid: false, reason: `Frame 3: ${qg3.reason}` };
+  }
+
+  // 2. Average RGB & sRGB -> CIE L*a*b* conversion
+  const rgb1 = computeAverageRGB(roi1);
+  const rgb2 = computeAverageRGB(roi2);
+  const rgb3 = computeAverageRGB(roi3);
+
+  const lab1 = rgbToCielab(rgb1.r, rgb1.g, rgb1.b);
+  const lab2 = rgbToCielab(rgb2.r, rgb2.g, rgb2.b);
+  const lab3 = rgbToCielab(rgb3.r, rgb3.g, rgb3.b);
+
+  // 3. Compute Delta E shifts: Delta E(1->2) and Delta E(2->3)
+  const delta_e_pre = computeDeltaE(lab1, lab2);
+  const delta_e = computeDeltaE(lab2, lab3);
+
+  // 4. Condition A: Frame 1 pre-contaminated baseline check (Delta E <= 35 from any reagent centroid)
+  let contaminatedCentroid = null;
+  let minContaminatedDist = Infinity;
+
+  for (const centroid of REAGENT_CENTROIDS) {
+    const dist = computeDeltaE(lab1, centroid.targetLab);
+    if (dist <= 35) {
+      if (dist < minContaminatedDist) {
+        minContaminatedDist = dist;
+        contaminatedCentroid = centroid;
+      }
+    }
+  }
+
+  if (contaminatedCentroid) {
+    const matchedResult = 'SUSPECTED FRAMING — PRE-CONTAMINATED BASELINE';
+    return {
+      valid: true,
+      delta_e_pre,
+      delta_e,
+      matched_result: matchedResult,
+      matchedResult,
+      nearestCentroid: contaminatedCentroid.name,
+      centroidDeltaE: minContaminatedDist,
+      lab1,
+      lab2,
+      lab3
+    };
+  }
+
+  // 5. Condition B: Instant swap / no reaction curve check (Delta E(1->2) > 35 AND Delta E(2->3) < 10)
+  if (delta_e_pre > 35 && delta_e < 10) {
+    const matchedResult = 'SUSPECTED FRAMING — INSTANT SWAP / NO REACTION CURVE';
+    return {
+      valid: true,
+      delta_e_pre,
+      delta_e,
+      matched_result: matchedResult,
+      matchedResult,
+      lab1,
+      lab2,
+      lab3
+    };
+  }
+
+  // 6. Condition C: Reaction curve check
+  if (delta_e < DELTA_E_NO_REACTION_THRESHOLD) {
+    const matchedResult = 'NEGATIVE — NO SIGNIFICANT REACTION';
+    return {
+      valid: true,
+      delta_e_pre,
+      delta_e,
+      matched_result: matchedResult,
+      matchedResult,
+      lab1,
+      lab2,
+      lab3
+    };
+  }
+
+  // Otherwise match Frame 3 against calibrated reagent centroids
+  let bestMatch = null;
+  let minDistance = Infinity;
+
+  for (const centroid of REAGENT_CENTROIDS) {
+    const dist = computeDeltaE(lab3, centroid.targetLab);
+    if (dist < minDistance) {
+      minDistance = dist;
+      bestMatch = centroid;
+    }
+  }
+
+  const matchedResult = (bestMatch && minDistance <= DELTA_E_MATCH_MAX_THRESHOLD)
+    ? bestMatch.classification
+    : 'INCONCLUSIVE — UNRECOGNIZED COLOR SHIFT';
+
+  return {
+    valid: true,
+    delta_e_pre,
+    delta_e,
+    matched_result: matchedResult,
+    matchedResult,
+    nearestCentroid: bestMatch ? bestMatch.name : undefined,
+    centroidDeltaE: minDistance,
+    lab1,
+    lab2,
+    lab3
+  };
+}
+
+// =============================================================================
+// Browser Global & Namespace Exposure (window.ColorMath / globalThis)
+// Guarantees availability for standard browser scripts, modules, and tests
+// =============================================================================
+const ColorMath = {
+  REAGENT_CENTROIDS,
+  DELTA_E_NO_REACTION_THRESHOLD,
+  DELTA_E_MATCH_MAX_THRESHOLD,
+  extractCenterROI,
+  evaluateQualityGate,
+  computeAverageRGB,
+  rgbToCielab,
+  computeDeltaE,
+  classifyReaction,
+  evaluateThreeFrameAnalysis
+};
+
+if (typeof window !== 'undefined') {
+  window.ColorMath = ColorMath;
+  window.evaluateThreeFrameAnalysis = evaluateThreeFrameAnalysis;
+  window.evaluateQualityGate = evaluateQualityGate;
+  window.extractCenterROI = extractCenterROI;
+  window.computeAverageRGB = computeAverageRGB;
+  window.rgbToCielab = rgbToCielab;
+  window.computeDeltaE = computeDeltaE;
+  window.classifyReaction = classifyReaction;
+}
+
+if (typeof globalThis !== 'undefined') {
+  globalThis.ColorMath = ColorMath;
+  globalThis.evaluateThreeFrameAnalysis = evaluateThreeFrameAnalysis;
+  globalThis.evaluateQualityGate = evaluateQualityGate;
+  globalThis.extractCenterROI = extractCenterROI;
+  globalThis.computeAverageRGB = computeAverageRGB;
+  globalThis.rgbToCielab = rgbToCielab;
+  globalThis.computeDeltaE = computeDeltaE;
+  globalThis.classifyReaction = classifyReaction;
+}
+
+export default ColorMath;
