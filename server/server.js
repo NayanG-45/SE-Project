@@ -3,13 +3,13 @@
  *
  * SPECIFICATION REFERENCE: README.md Section 8 & 9
  * Endpoints:
- * - POST /api/lock               (Generates case_id & timestamp, computes SHA-256 seal, commits to SQLite)
- * - GET  /api/evidence           (Retrieves evidence records in reverse chronological order)
- * - GET  /api/evidence/:id/verify (Recomputes SHA-256 against stored canonical record to verify tamper status)
+ * - POST /api/lock                (Generates case_id & timestamp, computes SHA-256 seal, commits to SQLite)
+ * - GET  /api/evidence            (Retrieves evidence records in reverse chronological order)
+ * - GET  /api/evidence/:id/verify (Recomputes canonical SHA-256 against stored record to verify tamper status)
  *
- * HARD PROHIBITIONS (Section 3):
- * - NO PUT, PATCH, or DELETE endpoints on evidence.
- * - NO user authentication or session management.
+ * HARD PROHIBITIONS (README.md Section 3):
+ * - NO PUT, PATCH, or DELETE endpoints on evidence (enforced via 405 Method Not Allowed).
+ * - NO user authentication, sessions, or login screens.
  * - NO external AI/LLM API calls.
  * - NO file upload endpoints (JSON Base64 payloads only from live stream).
  */
@@ -28,15 +28,28 @@ const {
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Initialize database schema
+// Initialize database schema on startup
 initDatabase();
 
 // Middleware
 app.use(cors());
-// 10MB payload limit to accommodate two Base64 frame strings (README.md Section 9)
+// 10MB payload limit to accommodate two Base64 JPEG frame strings (README.md Section 9)
 app.use(express.json({ limit: '10mb' }));
 
-// Serve static frontend assets
+/* =============================================================================
+   Hard Prohibition Enforcement: Forbid Mutating Routes (README.md Section 3)
+   405 Method Not Allowed on PUT, PATCH, DELETE across all /api endpoints.
+   ============================================================================= */
+app.use('/api', (req, res, next) => {
+  if (['PUT', 'PATCH', 'DELETE'].includes(req.method)) {
+    return res.status(405).json({
+      error: 'Method Not Allowed — Evidence records are immutable and append-only.'
+    });
+  }
+  next();
+});
+
+// Serve static frontend assets (zero build toolchain, pure Vanilla HTML/CSS/JS)
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 /**
@@ -45,10 +58,9 @@ app.use(express.static(path.join(__dirname, '..', 'public')));
  * case_id|frame_1|frame_2|delta_e(4dp)|matched_result|gps_lat(6dp)|gps_lng(6dp)|server_timestamp
  *
  * @param {Object} record
- * @returns {string} SHA-256 hex digest
+ * @returns {string} SHA-256 hex digest (64 characters)
  */
 function computeEvidenceHash(record) {
-  // TODO: Canonical serialization per README.md Section 8
   const canonicalPayload = [
     String(record.case_id),
     String(record.frame_1),
@@ -93,24 +105,24 @@ app.post('/api/lock', async (req, res) => {
   try {
     const { frame_1, frame_2, delta_e, matched_result, gps_lat, gps_lng } = req.body;
 
-    // Strict Request Validation
-    if (!frame_1 || typeof frame_1 !== 'string') {
-      return res.status(400).json({ error: 'Missing or invalid frame_1 (Base64 string required)' });
+    // Strict Request Body Validation
+    if (!frame_1 || typeof frame_1 !== 'string' || !frame_1.trim()) {
+      return res.status(400).json({ error: 'Missing or invalid frame_1 (Base64 JPEG string required)' });
     }
-    if (!frame_2 || typeof frame_2 !== 'string') {
-      return res.status(400).json({ error: 'Missing or invalid frame_2 (Base64 string required)' });
+    if (!frame_2 || typeof frame_2 !== 'string' || !frame_2.trim()) {
+      return res.status(400).json({ error: 'Missing or invalid frame_2 (Base64 JPEG string required)' });
     }
     if (delta_e === undefined || typeof delta_e !== 'number' || !Number.isFinite(delta_e)) {
       return res.status(400).json({ error: 'Missing or invalid delta_e (finite number required)' });
     }
-    if (!matched_result || typeof matched_result !== 'string') {
+    if (!matched_result || typeof matched_result !== 'string' || !matched_result.trim()) {
       return res.status(400).json({ error: 'Missing or invalid matched_result' });
     }
-    if (gps_lat === undefined || typeof gps_lat !== 'number' || !Number.isFinite(gps_lat)) {
-      return res.status(400).json({ error: 'Missing or invalid gps_lat (finite number required)' });
+    if (gps_lat === undefined || typeof gps_lat !== 'number' || !Number.isFinite(gps_lat) || gps_lat < -90 || gps_lat > 90) {
+      return res.status(400).json({ error: 'Missing or invalid gps_lat (-90 to 90 required)' });
     }
-    if (gps_lng === undefined || typeof gps_lng !== 'number' || !Number.isFinite(gps_lng)) {
-      return res.status(400).json({ error: 'Missing or invalid gps_lng (finite number required)' });
+    if (gps_lng === undefined || typeof gps_lng !== 'number' || !Number.isFinite(gps_lng) || gps_lng < -180 || gps_lng > 180) {
+      return res.status(400).json({ error: 'Missing or invalid gps_lng (-180 to 180 required)' });
     }
 
     // Authoritative Server Telemetry Generation (Never trust client clock or ID)
@@ -128,11 +140,11 @@ app.post('/api/lock', async (req, res) => {
       server_timestamp
     };
 
-    // Compute Cryptographic Seal
+    // Compute Cryptographic SHA-256 Seal
     const sha256_hash = computeEvidenceHash(record);
     record.sha256_hash = sha256_hash;
 
-    // Commit to SQLite
+    // Commit to SQLite (Append-Only)
     await insertEvidenceRecord(record);
 
     return res.status(201).json(record);
@@ -158,7 +170,8 @@ app.get('/api/evidence', async (req, res) => {
 
 /**
  * GET /api/evidence/:id/verify
- * Fetches the stored record, re-computes its SHA-256 canonical hash, and compares.
+ * Fetches the stored record, re-computes its canonical SHA-256 hash, and performs
+ * constant-time byte-for-byte comparison against stored sha256_hash.
  */
 app.get('/api/evidence/:id/verify', async (req, res) => {
   try {
@@ -169,12 +182,17 @@ app.get('/api/evidence/:id/verify', async (req, res) => {
       return res.status(404).json({ error: `Evidence record ${caseId} not found` });
     }
 
-    // Recompute hash using canonical protocol
+    // Recompute hash using the exact canonical protocol
     const computed_hash = computeEvidenceHash(storedRecord);
-    const isVerified = crypto.timingSafeEqual(
-      Buffer.from(computed_hash, 'utf8'),
-      Buffer.from(storedRecord.sha256_hash, 'utf8')
-    );
+
+    // Constant-time comparison (safe against differing buffer lengths)
+    let isVerified = false;
+    const computedBuf = Buffer.from(computed_hash, 'utf8');
+    const storedBuf = Buffer.from(String(storedRecord.sha256_hash || ''), 'utf8');
+
+    if (computedBuf.length === storedBuf.length) {
+      isVerified = crypto.timingSafeEqual(computedBuf, storedBuf);
+    }
 
     return res.status(200).json({
       status: isVerified ? 'VERIFIED' : 'TAMPERED',
@@ -189,19 +207,7 @@ app.get('/api/evidence/:id/verify', async (req, res) => {
   }
 });
 
-/* =============================================================================
-   Hard Prohibition Enforcement: Forbid Mutating Routes (README.md Section 3)
-   ============================================================================= */
-app.all(['/api/evidence*', '/api/lock*'], (req, res, next) => {
-  if (['PUT', 'PATCH', 'DELETE'].includes(req.method)) {
-    return res.status(405).json({
-      error: 'Method Not Allowed — Evidence records are immutable and append-only.'
-    });
-  }
-  next();
-});
-
-// Start Server
+// Start Server when invoked directly
 if (require.main === module) {
   app.listen(PORT, () => {
     console.log(`[NTV Server] Running at http://localhost:${PORT}`);

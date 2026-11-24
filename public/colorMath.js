@@ -9,7 +9,7 @@
  * 4. Delta E (CIE76) perceptual color distance
  * 5. Deterministic Reagent Reference Centroid Matching
  *
- * HARD PROHIBITIONS (Section 3):
+ * HARD PROHIBITIONS (README.md Section 3):
  * - NO external ML libraries or black-box classifiers.
  * - 100% deterministic, reproducible, auditable in court.
  */
@@ -49,30 +49,36 @@ export const DELTA_E_MATCH_MAX_THRESHOLD = 45.0;
  * @param {number} canvasWidth - Width of the source canvas (e.g., 480)
  * @param {number} canvasHeight - Height of the source canvas (e.g., 360)
  * @param {number} roiSize - Square ROI dimension (default 100px)
- * @returns {ImageData}
+ * @returns {ImageData} Centered ROI pixel data
  */
 export function extractCenterROI(ctx, canvasWidth, canvasHeight, roiSize = 100) {
-  // TODO: Extract exact center coordinates: startX = (canvasWidth - roiSize) / 2, startY = (canvasHeight - roiSize) / 2
-  const startX = Math.floor((canvasWidth - roiSize) / 2);
-  const startY = Math.floor((canvasHeight - roiSize) / 2);
-  return ctx.getImageData(startX, startY, roiSize, roiSize);
+  const size = Math.min(roiSize, canvasWidth, canvasHeight);
+  const startX = Math.max(0, Math.floor((canvasWidth - size) / 2));
+  const startY = Math.max(0, Math.floor((canvasHeight - size) / 2));
+  return ctx.getImageData(startX, startY, size, size);
 }
 
 /**
  * 7.2 Quality Gate (Blank / Dark / Covered Lens / Glare Detection)
- * Evaluates relative luminance Yi = 0.2126*R + 0.7152*G + 0.0722*B
- * Rejection thresholds:
- *   - Dark/Covered: mu_Y < 25
+ * Evaluates relative luminance: Y_i = 0.2126*R_i + 0.7152*G_i + 0.0722*B_i
+ * Computes mean luminance (mu_Y) and standard deviation (sigma_Y).
+ *
+ * Rejection thresholds per README.md Section 7.2:
+ *   - Dark/Covered Lens: mu_Y < 25
  *   - Glare/Overexposed: mu_Y > 248
- *   - Flat/Solid blank frame: sigma_Y < 1.5
+ *   - Flat/Solid Blank Frame: sigma_Y < 1.5
  *
  * @param {ImageData} roiImageData - Raw pixels of the ROI
  * @returns {{ valid: boolean, reason?: string, mu_Y: number, sigma_Y: number }}
  */
 export function evaluateQualityGate(roiImageData) {
-  // TODO: Iterate over pixels to compute mean luminance (mu_Y) and standard deviation (sigma_Y)
   const data = roiImageData.data;
   const numPixels = data.length / 4;
+
+  if (numPixels === 0) {
+    return { valid: false, reason: 'Empty ROI pixel data', mu_Y: 0, sigma_Y: 0 };
+  }
+
   let sumY = 0;
   const luminances = new Float32Array(numPixels);
 
@@ -114,9 +120,13 @@ export function evaluateQualityGate(roiImageData) {
  * @returns {{ r: number, g: number, b: number }}
  */
 export function computeAverageRGB(roiImageData) {
-  // TODO: Accumulate channel values across ROI pixels and return normalized average
   const data = roiImageData.data;
   const numPixels = data.length / 4;
+
+  if (numPixels === 0) {
+    return { r: 0, g: 0, b: 0 };
+  }
+
   let sumR = 0;
   let sumG = 0;
   let sumB = 0;
@@ -144,9 +154,9 @@ export function computeAverageRGB(roiImageData) {
  * @returns {{ L: number, a: number, b: number }}
  */
 export function rgbToCielab(r, g, b) {
-  // TODO: Inverse sRGB companding
+  // Inverse sRGB companding
   const cLin = (c) => {
-    const norm = c / 255.0;
+    const norm = Math.max(0, Math.min(255, c)) / 255.0;
     return norm <= 0.04045 ? norm / 12.92 : Math.pow((norm + 0.055) / 1.055, 2.4);
   };
 
@@ -154,12 +164,12 @@ export function rgbToCielab(r, g, b) {
   const gLin = cLin(g);
   const bLin = cLin(b);
 
-  // Linear RGB to CIE XYZ (D65 Standard Illuminant)
+  // Linear RGB to CIE XYZ (D65 Standard Illuminant transformation matrix)
   const X = 0.4124564 * rLin + 0.3575761 * gLin + 0.1804375 * bLin;
   const Y = 0.2126729 * rLin + 0.7151522 * gLin + 0.0721750 * bLin;
   const Z = 0.0193339 * rLin + 0.1191920 * gLin + 0.9503041 * bLin;
 
-  // D65 reference white points
+  // D65 reference white point constants
   const Xn = 0.95047;
   const Yn = 1.00000;
   const Zn = 1.08883;
@@ -188,10 +198,9 @@ export function rgbToCielab(r, g, b) {
  *
  * @param {{ L: number, a: number, b: number }} lab1
  * @param {{ L: number, a: number, b: number }} lab2
- * @returns {number}
+ * @returns {number} Euclidean distance in CIE L*a*b* space
  */
 export function computeDeltaE(lab1, lab2) {
-  // TODO: Compute Euclidean distance in CIE L*a*b* space
   const dL = lab2.L - lab1.L;
   const da = lab2.a - lab1.a;
   const db = lab2.b - lab1.b;
@@ -201,12 +210,17 @@ export function computeDeltaE(lab1, lab2) {
 /**
  * Classifies reaction against calibrated chemical reference centroids.
  *
+ * Rules:
+ *  - If deltaE_shift < 12.0: 'NEGATIVE — NO SIGNIFICANT REACTION'
+ *  - If deltaE_shift >= 12.0: Match against nearest reference centroid.
+ *    - If nearest centroid deltaE <= 45.0: Return matched classification
+ *    - Otherwise: 'INCONCLUSIVE — UNRECOGNIZED COLOR SHIFT'
+ *
  * @param {{ L: number, a: number, b: number }} baselineLab - Frame 1 Lab
  * @param {{ L: number, a: number, b: number }} reactedLab - Frame 2 Lab
  * @returns {{ deltaE_shift: number, matchedResult: string, nearestCentroid?: string, centroidDeltaE?: number }}
  */
 export function classifyReaction(baselineLab, reactedLab) {
-  // TODO: Compute deltaE_shift between baseline and reacted frames
   const deltaE_shift = computeDeltaE(baselineLab, reactedLab);
 
   // No-Reaction Gate (< 12.0)
@@ -217,7 +231,7 @@ export function classifyReaction(baselineLab, reactedLab) {
     };
   }
 
-  // Find nearest centroid
+  // Find nearest calibrated centroid in CIE L*a*b* space
   let bestMatch = null;
   let minDistance = Infinity;
 

@@ -13,49 +13,57 @@
  *  - server_timestamp TEXT NOT NULL
  *  - sha256_hash TEXT NOT NULL
  *
- * HARD PROHIBITIONS (Section 3):
+ * HARD PROHIBITIONS (README.md Section 3):
  * - NO mutating SQL statements (UPDATE, DELETE).
  * - Read and Insert operations only.
+ * - Append-only relational store providing O(1) tamper detection.
  */
 
 const path = require('path');
-const fs = require('fs');
 
 const DB_PATH = path.join(__dirname, '..', 'narcotest.db');
 
 let db = null;
 let dbDriver = null; // 'better-sqlite3' | 'node-sqlite' | 'sqlite3'
 
-// Initialize Database Connection (better-sqlite3 -> node:sqlite synchronous -> sqlite3 fallback)
-function initDatabase() {
+/**
+ * Initializes the SQLite database connection.
+ * Priority order:
+ *  1. better-sqlite3 (synchronous, preferred)
+ *  2. node:sqlite DatabaseSync (Node 22/24 native synchronous SQLite)
+ *  3. sqlite3 (asynchronous callback fallback)
+ */
+function initDatabase(customPath) {
+  const targetPath = customPath || DB_PATH;
+
   // Strategy 1: better-sqlite3 (preferred per README.md)
   try {
     const Database = require('better-sqlite3');
-    db = new Database(DB_PATH);
+    db = new Database(targetPath);
     dbDriver = 'better-sqlite3';
     db.pragma('journal_mode = WAL');
-    console.log('[DB] Connected via better-sqlite3:', DB_PATH);
+    console.log('[DB] Connected via better-sqlite3:', targetPath);
     createSchema();
-    return;
+    return db;
   } catch (err) {
-    // Strategy 2: node:sqlite DatabaseSync (Node 22/24 native synchronous SQLite, identical API to better-sqlite3)
+    // Strategy 2: node:sqlite DatabaseSync (Node 22/24 native synchronous SQLite, identical method signatures)
     try {
       const { DatabaseSync } = require('node:sqlite');
-      db = new DatabaseSync(DB_PATH);
+      db = new DatabaseSync(targetPath);
       dbDriver = 'node-sqlite';
       db.exec('PRAGMA journal_mode = WAL;');
-      console.log('[DB] Connected via native node:sqlite (synchronous):', DB_PATH);
+      console.log('[DB] Connected via native node:sqlite (synchronous):', targetPath);
       createSchema();
-      return;
+      return db;
     } catch (err2) {
       // Strategy 3: sqlite3 (callback fallback)
       try {
         const sqlite3 = require('sqlite3').verbose();
-        db = new sqlite3.Database(DB_PATH);
+        db = new sqlite3.Database(targetPath);
         dbDriver = 'sqlite3';
-        console.log('[DB] Connected via sqlite3 fallback:', DB_PATH);
+        console.log('[DB] Connected via sqlite3 fallback:', targetPath);
         createSchema();
-        return;
+        return db;
       } catch (err3) {
         console.error('[DB] All SQLite drivers failed to initialize:', err3.message);
         throw err3;
@@ -66,6 +74,7 @@ function initDatabase() {
 
 /**
  * Creates the immutable evidence_records table if it does not already exist.
+ * Conforms strictly to README.md Section 9 schema.
  */
 function createSchema() {
   const schemaSql = `
@@ -83,7 +92,6 @@ function createSchema() {
   `;
 
   if (dbDriver === 'better-sqlite3' || dbDriver === 'node-sqlite') {
-    // TODO: Execute table creation synchronously
     db.exec(schemaSql);
   } else if (dbDriver === 'sqlite3') {
     db.run(schemaSql, (err) => {
@@ -94,12 +102,14 @@ function createSchema() {
 
 /**
  * Inserts a new immutable evidence record.
+ * Append-only: INSERT statement only, no UPDATE or DELETE.
  *
- * @param {Object} record - { case_id, frame_1, frame_2, delta_e, matched_result, gps_lat, gps_lng, server_timestamp, sha256_hash }
- * @returns {Promise<Object>}
+ * @param {Object} record - Complete validated evidence record
+ * @returns {Promise<Object>} The inserted record
  */
 function insertEvidenceRecord(record) {
-  // TODO: Insert strictly append-only record into evidence_records table
+  if (!db) initDatabase();
+
   return new Promise((resolve, reject) => {
     const sql = `
       INSERT INTO evidence_records (
@@ -109,15 +119,15 @@ function insertEvidenceRecord(record) {
     `;
 
     const params = [
-      record.case_id,
-      record.frame_1,
-      record.frame_2,
-      record.delta_e,
-      record.matched_result,
-      record.gps_lat,
-      record.gps_lng,
-      record.server_timestamp,
-      record.sha256_hash
+      String(record.case_id),
+      String(record.frame_1),
+      String(record.frame_2),
+      Number(record.delta_e),
+      String(record.matched_result),
+      Number(record.gps_lat),
+      Number(record.gps_lng),
+      String(record.server_timestamp),
+      String(record.sha256_hash)
     ];
 
     if (dbDriver === 'better-sqlite3' || dbDriver === 'node-sqlite') {
@@ -139,12 +149,13 @@ function insertEvidenceRecord(record) {
 
 /**
  * Retrieves all evidence records ordered by server_timestamp DESC.
- * (Omits massive Base64 frame payloads for fast vault rendering).
+ * Omits heavy Base64 frames (frame_1, frame_2) for fast summary display.
  *
- * @returns {Promise<Array<Object>>}
+ * @returns {Promise<Array<Object>>} List of evidence summaries
  */
 function getAllEvidenceRecords() {
-  // TODO: Query list of evidence records without full base64 frames for performance
+  if (!db) initDatabase();
+
   return new Promise((resolve, reject) => {
     const sql = `
       SELECT case_id, delta_e, matched_result, gps_lat, gps_lng, server_timestamp, sha256_hash
@@ -155,34 +166,38 @@ function getAllEvidenceRecords() {
     if (dbDriver === 'better-sqlite3' || dbDriver === 'node-sqlite') {
       try {
         const rows = db.prepare(sql).all();
-        resolve(rows);
+        // Convert null-prototype objects to plain JS objects
+        const cleanRows = rows.map(r => ({ ...r }));
+        resolve(cleanRows);
       } catch (err) {
         reject(err);
       }
     } else {
       db.all(sql, [], (err, rows) => {
         if (err) return reject(err);
-        resolve(rows);
+        resolve(rows || []);
       });
     }
   });
 }
 
 /**
- * Retrieves a single complete evidence record by case_id (includes frame_1 and frame_2 for hashing).
+ * Retrieves a single complete evidence record by case_id.
+ * Includes frame_1 and frame_2 for byte-for-byte SHA-256 hash recomputation.
  *
  * @param {string} case_id
- * @returns {Promise<Object|null>}
+ * @returns {Promise<Object|null>} Full record or null if not found
  */
 function getEvidenceRecordById(case_id) {
-  // TODO: Retrieve full row by case_id for cryptographic integrity verification
+  if (!db) initDatabase();
+
   return new Promise((resolve, reject) => {
     const sql = `SELECT * FROM evidence_records WHERE case_id = ?`;
 
     if (dbDriver === 'better-sqlite3' || dbDriver === 'node-sqlite') {
       try {
         const row = db.prepare(sql).get(case_id);
-        resolve(row || null);
+        resolve(row ? { ...row } : null);
       } catch (err) {
         reject(err);
       }
@@ -199,5 +214,6 @@ module.exports = {
   initDatabase,
   insertEvidenceRecord,
   getAllEvidenceRecords,
-  getEvidenceRecordById
+  getEvidenceRecordById,
+  DB_PATH
 };
